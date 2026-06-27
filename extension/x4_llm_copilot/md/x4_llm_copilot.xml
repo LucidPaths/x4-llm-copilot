@@ -51,6 +51,45 @@
       </actions>
     </cue>
 
+    <cue name="Ambient_Raw_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'AmbientRaw'" />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: raw ambient from Lua: %s'.[event.param3]" filter="general" />
+        <signal_cue_instantly cue="md.Named_Pipes.Write" param="table[
+          $pipe='x4_llm_copilot',
+          $msg=event.param3,
+          $cue=Ambient_Write_Callback,
+          $time=5s]" />
+      </actions>
+    </cue>
+
+    <cue name="Ambient_Write_Callback" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: ambient write result: %s'.[event.param]" filter="general" />
+        <do_if value="event.param == 'SUCCESS'">
+          <signal_cue_instantly cue="md.Named_Pipes.Read" param="table[
+            $pipe='x4_llm_copilot',
+            $cue=Ambient_Read_Callback,
+            $time=5s,
+            $cancel_on_timeout=true]" />
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="Ambient_Read_Callback" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: ambient read result: %s'.[event.param]" filter="general" />
+      </actions>
+    </cue>
+
     <cue name="Pipe_API_Disabled" instantiate="true">
       <conditions>
         <event_ui_triggered screen="'Named_Pipes'" control="'disabled'" />

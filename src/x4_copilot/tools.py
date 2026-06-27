@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -22,6 +23,7 @@ INTENT_FIXTURES: dict[Intent, str] = {
     "sector_objects": "sector_objects_payload.json",
 }
 READ_TOOLS = frozenset(INTENT_FIXTURES)
+DEFAULT_RAW_TELEMETRY_LOG = PACKAGE_ROOT / "var" / "live_telemetry_raw.jsonl"
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,12 @@ class SerializedFetcher:
         with self._lock:
             return self._fetcher(request)
 
+    def provenance_for(self, request: FetchRequest) -> FetchProvenance | None:
+        provenance_for = getattr(self._fetcher, "provenance_for", None)
+        if callable(provenance_for):
+            return provenance_for(request)
+        return None
+
 
 class MockTelemetryFetcher:
     """Fixture-backed fetcher for tool/MCP wiring before live X4 telemetry exists."""
@@ -80,6 +88,121 @@ class MockTelemetryFetcher:
         if payload.intent == "unknown":
             return TelemetryPayload(intent=request.intent, ambient=payload.ambient, data=payload.data, as_of=payload.as_of)
         return payload
+
+
+class RawTelemetryLogFetcher:
+    """Read the latest literal live X4 Lua probe captured by the pipe server.
+
+    This is intentionally small and read-only: it converts the observed
+    ``telemetry_raw`` ambient probe into the repo's stable ``TelemetryPayload``
+    shape. It does not call models, own credentials, or fabricate unsupported
+    intents.
+    """
+
+    provenance = FetchProvenance(source="x4_lua_live_raw_log", stale=False)
+    supported_intents = frozenset({"ambient_context", "ship_status"})
+
+    def __init__(self, path: str | Path = DEFAULT_RAW_TELEMETRY_LOG) -> None:
+        self.path = Path(path)
+
+    def __call__(self, request: FetchRequest) -> TelemetryPayload:
+        if request.intent not in {"ambient_context", "ship_status"}:
+            raise PayloadError(f"live raw telemetry only supports ambient_context/ship_status, got {request.intent}")
+        raw = read_latest_raw_telemetry(self.path)
+        payload = telemetry_payload_from_raw_ambient(raw)
+        if request.intent == "ship_status":
+            return TelemetryPayload(intent="ship_status", ambient=payload.ambient, data=payload.data, as_of=payload.as_of)
+        return payload
+
+
+def read_latest_raw_telemetry(path: str | Path = DEFAULT_RAW_TELEMETRY_LOG) -> dict[str, Any]:
+    path = Path(path)
+    try:
+        lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except FileNotFoundError as exc:
+        raise PayloadError(f"live raw telemetry log not found: {path}") from exc
+    if not lines:
+        raise PayloadError(f"live raw telemetry log is empty: {path}")
+    try:
+        raw = json.loads(lines[-1])
+    except json.JSONDecodeError as exc:
+        raise PayloadError(f"latest raw telemetry line is not JSON: {path}") from exc
+    if not isinstance(raw, dict):
+        raise PayloadError("latest raw telemetry line must be an object")
+    return raw
+
+
+def telemetry_payload_from_raw_ambient(raw: dict[str, Any]) -> TelemetryPayload:
+    if raw.get("type") != "telemetry_raw":
+        raise PayloadError("raw telemetry type must be telemetry_raw")
+    if raw.get("intent") != "ambient_context":
+        raise PayloadError("raw telemetry intent must be ambient_context")
+    if raw.get("source") != "x4_lua_live":
+        raise PayloadError("raw telemetry source must be x4_lua_live")
+    if raw.get("schema") != "ambient_probe_v1":
+        raise PayloadError("raw telemetry schema must be ambient_probe_v1")
+
+    data: list[dict[str, Any]] = [
+        {
+            "kind": "ship_status",
+            "player_id": _optional_raw_str(raw.get("player_id")),
+            "ship_id": _optional_raw_str(raw.get("ship_id")),
+            "hull_percent": _optional_raw_number(raw.get("hullpercent"), "hullpercent"),
+            "shield_percent": _optional_raw_number(raw.get("shieldpercent"), "shieldpercent"),
+        }
+    ]
+    return TelemetryPayload(
+        intent="ambient_context",
+        ambient=AmbientContext(sector=_optional_raw_str(raw.get("sector_raw")), ship=_optional_raw_str(raw.get("ship_name"))),
+        data=data,
+        as_of="latest live raw Lua ambient probe",
+    )
+
+
+def _optional_raw_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _optional_raw_number(value: Any, label: str) -> int | float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise PayloadError(f"{label} must be a number")
+    if isinstance(value, int | float):
+        return value
+    try:
+        number = float(str(value))
+    except ValueError as exc:
+        raise PayloadError(f"{label} must be a number") from exc
+    return int(number) if number.is_integer() else number
+
+
+class OverlayTelemetryFetcher:
+    """Route supported live intents to a primary fetcher and fall back to fixtures.
+
+    This makes MCP useful immediately: ambient/ship status can be live while trade,
+    faction, and sector-object tools remain explicit mock/stale fixture data until
+    their Lua read paths exist.
+    """
+
+    def __init__(self, primary: TelemetryFetcher, fallback: TelemetryFetcher) -> None:
+        self.primary = primary
+        self.fallback = fallback
+
+    def __call__(self, request: FetchRequest) -> TelemetryPayload:
+        supported = getattr(self.primary, "supported_intents", frozenset())
+        if request.intent in supported:
+            return self.primary(request)
+        return self.fallback(request)
+
+    def provenance_for(self, request: FetchRequest) -> FetchProvenance:
+        supported = getattr(self.primary, "supported_intents", frozenset())
+        if request.intent in supported:
+            return getattr(self.primary, "provenance", FetchProvenance())
+        return getattr(self.fallback, "provenance", FetchProvenance())
 
 
 class X4ToolSurface:
@@ -164,7 +287,9 @@ class X4ToolSurface:
     def _fetch(self, request: FetchRequest) -> FetchedTelemetry:
         if request.intent not in VALID_INTENTS:
             raise PayloadError(f"unsupported intent: {request.intent}")
-        return FetchedTelemetry(payload=self._fetcher(request), provenance=self._provenance)
+        payload = self._fetcher(request)
+        provenance = self._fetcher.provenance_for(request) or self._provenance
+        return FetchedTelemetry(payload=payload, provenance=provenance)
 
 
 def create_mock_tool_surface(examples_dir: str | Path = DEFAULT_EXAMPLES_DIR) -> X4ToolSurface:
@@ -172,7 +297,23 @@ def create_mock_tool_surface(examples_dir: str | Path = DEFAULT_EXAMPLES_DIR) ->
     return X4ToolSurface(fetcher)
 
 
-_default_surface = create_mock_tool_surface()
+def create_live_raw_log_tool_surface(
+    path: str | Path = DEFAULT_RAW_TELEMETRY_LOG,
+    *,
+    examples_dir: str | Path = DEFAULT_EXAMPLES_DIR,
+) -> X4ToolSurface:
+    fetcher = OverlayTelemetryFetcher(RawTelemetryLogFetcher(path), MockTelemetryFetcher(examples_dir))
+    return X4ToolSurface(fetcher, provenance=fetcher.provenance_for(FetchRequest(intent="ambient_context", args={})))
+
+
+def create_tool_surface_from_env() -> X4ToolSurface:
+    source = os.getenv("X4_COPILOT_TELEMETRY_SOURCE", "mock").strip().lower()
+    if source in {"live_raw_log", "raw_log", "live"}:
+        return create_live_raw_log_tool_surface(os.getenv("X4_COPILOT_RAW_TELEMETRY_LOG", DEFAULT_RAW_TELEMETRY_LOG))
+    return create_mock_tool_surface()
+
+
+_default_surface = create_tool_surface_from_env()
 
 
 def set_default_surface(surface: X4ToolSurface) -> None:

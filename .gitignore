@@ -15,6 +15,7 @@ build/
 permissions.json
 logs/
 .output/
+var/
 
 # OS/editor
 .DS_Store

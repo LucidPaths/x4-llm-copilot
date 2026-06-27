@@ -7,9 +7,12 @@ from x4_copilot.protocol import FetchRequest
 from x4_copilot.tools import (
     FetchProvenance,
     MockTelemetryFetcher,
+    RawTelemetryLogFetcher,
     SerializedFetcher,
     X4ToolSurface,
+    create_live_raw_log_tool_surface,
     create_mock_tool_surface,
+    telemetry_payload_from_raw_ambient,
 )
 
 
@@ -17,7 +20,7 @@ def test_mock_tool_surface_returns_all_read_tool_shapes():
     surface = create_mock_tool_surface()
 
     ambient = surface.get_ambient_context()
-    assert ambient["sector"] == "Grand Exchange IV"
+    assert ambient["sector"] == "Windfall I Union Summit"
     assert ambient["source"] == "mock"
     assert ambient["stale"] is True
 
@@ -154,6 +157,78 @@ def test_mcp_module_imports_without_optional_sdk():
     import x4_copilot.mcp_server as mcp_server
 
     assert callable(mcp_server.build_mcp_server)
+
+
+def test_raw_ambient_probe_maps_to_stable_telemetry_payload():
+    payload = telemetry_payload_from_raw_ambient(
+        {
+            "type": "telemetry_raw",
+            "intent": "ambient_context",
+            "source": "x4_lua_live",
+            "schema": "ambient_probe_v1",
+            "player_id": "212884ULL",
+            "ship_id": "212875ULL",
+            "ship_name": "Raleigh (Container)",
+            "sector_raw": "Windfall I Union Summit",
+            "hullpercent": 100,
+            "shieldpercent": 100,
+        }
+    )
+
+    assert payload.intent == "ambient_context"
+    assert payload.ambient == AmbientContext(sector="Windfall I Union Summit", ship="Raleigh (Container)")
+    assert payload.data == [
+        {
+            "kind": "ship_status",
+            "player_id": "212884ULL",
+            "ship_id": "212875ULL",
+            "hull_percent": 100,
+            "shield_percent": 100,
+        }
+    ]
+
+
+def test_live_raw_log_surface_returns_live_ambient_and_mock_fallback(tmp_path):
+    raw_log = tmp_path / "live_telemetry_raw.jsonl"
+    raw_log.write_text(
+        json.dumps(
+            {
+                "type": "telemetry_raw",
+                "intent": "ambient_context",
+                "source": "x4_lua_live",
+                "schema": "ambient_probe_v1",
+                "ship_name": "Raleigh (Container)",
+                "sector_raw": "Windfall I Union Summit",
+                "hullpercent": 100,
+                "shieldpercent": 100,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    surface = create_live_raw_log_tool_surface(raw_log)
+    ambient = surface.get_ambient_context()
+    trade = surface.fetch_trade_offers()
+
+    assert ambient["sector"] == "Windfall I Union Summit"
+    assert ambient["ship"] == "Raleigh (Container)"
+    assert ambient["source"] == "x4_lua_live_raw_log"
+    assert ambient["stale"] is False
+    assert trade["source"] == "mock"
+    assert trade["stale"] is True
+
+
+def test_raw_log_fetcher_refuses_unsupported_intents_without_fixture_fallback(tmp_path):
+    raw_log = tmp_path / "live_telemetry_raw.jsonl"
+    raw_log.write_text("{}\n", encoding="utf-8")
+
+    try:
+        RawTelemetryLogFetcher(raw_log)(FetchRequest(intent="trade_in_sector", args={}))
+    except Exception as exc:  # noqa: BLE001 - exact public exception is asserted by message
+        assert "only supports ambient_context/ship_status" in str(exc)
+    else:
+        raise AssertionError("RawTelemetryLogFetcher must not fabricate trade data")
 
 
 def test_tool_results_are_json_serializable():

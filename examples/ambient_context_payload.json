@@ -1,7 +1,21 @@
 {
   "type": "telemetry",
   "intent": "ambient_context",
-  "as_of": "sample fixture",
-  "ambient": {"sector": "Grand Exchange IV", "pos": [0, 0, 0], "credits": 184000, "ship": "Kestrel Vanguard", "target": null},
-  "data": []
+  "as_of": "sample normalized from live Lua ambient_probe_v1",
+  "ambient": {
+    "sector": "Windfall I Union Summit",
+    "pos": null,
+    "credits": null,
+    "ship": "Raleigh (Container)",
+    "target": null
+  },
+  "data": [
+    {
+      "kind": "ship_status",
+      "player_id": "212884ULL",
+      "ship_id": "212875ULL",
+      "hull_percent": 100,
+      "shield_percent": 100
+    }
+  ]
 }

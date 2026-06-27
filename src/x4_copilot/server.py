@@ -4,7 +4,9 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from time import sleep
+from typing import Any
 
 from .llm import advisor_from_env
 from .models import PayloadError, TelemetryPayload
@@ -14,6 +16,19 @@ from .protocol import FetchRequest, encode_answer, parse_json_message
 TelemetryFetcher = Callable[[FetchRequest], TelemetryPayload]
 LOG = logging.getLogger(__name__)
 PIPE_BREAK_EXCEPTIONS = (BrokenPipeError, ConnectionError, EOFError, OSError, RuntimeError)
+RAW_TELEMETRY_LOG = Path("var/live_telemetry_raw.jsonl")
+
+
+def append_raw_telemetry(message: dict[str, Any], *, path: Path | None = None) -> None:
+    """Append a literal live payload before schema coercion.
+
+    Phase-2's purpose is to observe the real X4/Lua bytes. Keep this deliberately
+    separate from TelemetryPayload parsing so guessed schemas cannot hide drift.
+    """
+    path = path or RAW_TELEMETRY_LOG
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(message, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 @dataclass
@@ -38,6 +53,9 @@ class X4CopilotServer:
         msg_type = message.get("type")
         if msg_type == "ping":
             return json.dumps({"type": "pong"})
+        if msg_type == "telemetry_raw":
+            append_raw_telemetry(message)
+            return json.dumps({"type": "telemetry_raw_ack", "intent": message.get("intent"), "source": message.get("source")}, ensure_ascii=False)
         if msg_type == "question":
             return self.handle_question(str(message.get("question", "")))
         if msg_type == "telemetry":

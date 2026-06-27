@@ -23,13 +23,15 @@
 - Added committed MCP SDK/client-path tests and CI smoke coverage.
 - Documented the hard boundary: Hermes path is mock-backed until the live Lua/MD telemetry reader exists.
 
-## v0.2 — live X4 pipe and telemetry reads
+## v0.2 — live X4 pipe and telemetry reads — partial
 
-- Install `sn_mod_support_apis` in X4.
-- Copy or symlink `extension/x4_llm_copilot` into the X4 `extensions/` folder.
-- Run `x4-copilot serve-pipe --pipe x4_llm_copilot` with pywin32 installed.
-- Validate exact MD `Named_Pipes.*` call shapes in the live X4 debug log.
-- Add the first real read/write ping through X4, then telemetry reads for player sector/position, ship status, trade offers, sector objects, and faction relation snapshots.
+- Installed `sn_mod_support_apis` in X4.
+- Copied `extension/x4_llm_copilot` into the X4 `extensions/` folder.
+- Ran `x4-copilot serve-pipe --pipe x4_llm_copilot` with pywin32 installed.
+- Validated exact MD `Named_Pipes.*` call shapes in the live X4 debug log, including the key correction that Lua `AddUITriggeredEvent(..., payload)` arrives in MD as `event.param3`.
+- Verified ping/pong through X4 and captured the first live Lua ambient payload: sector, occupied ship, hull percent, and shield percent.
+- Added `RawTelemetryLogFetcher` and MCP/CLI wiring for live raw ambient/ship-status reads from `var/live_telemetry_raw.jsonl`.
+- Remaining in v0.2: live trade offers, sector objects, and faction relation snapshots.
 
 ## v0.3 — brain integration
 

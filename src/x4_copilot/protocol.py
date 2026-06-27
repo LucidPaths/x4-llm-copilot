@@ -7,7 +7,7 @@ from typing import Any, Literal
 from .intent import classify
 from .models import Intent, PayloadError, TelemetryPayload
 
-MessageType = Literal["fetch", "telemetry", "answer", "action", "error", "ping", "pong"]
+MessageType = Literal["fetch", "telemetry", "telemetry_raw", "answer", "action", "error", "ping", "pong"]
 
 
 @dataclass(frozen=True)

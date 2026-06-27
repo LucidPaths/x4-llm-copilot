@@ -10,7 +10,7 @@ from .llm import advisor_from_env, list_ollama_models, list_provider_profiles
 from .models import TelemetryPayload
 from .protocol import FetchRequest
 from .server import serve_named_pipe
-from .tools import create_mock_tool_surface
+from .tools import create_live_raw_log_tool_surface, create_mock_tool_surface
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,8 +26,10 @@ def main(argv: list[str] | None = None) -> int:
     p_pipe = sub.add_parser("serve-pipe", help="serve the Windows named pipe for X4")
     p_pipe.add_argument("--pipe", default="x4_llm_copilot")
 
-    p_tool = sub.add_parser("tool", help="call the mock-backed structured tool surface")
+    p_tool = sub.add_parser("tool", help="call the structured tool surface")
     p_tool.add_argument("name", choices=["ambient", "trade", "ship", "faction", "objects"])
+    p_tool.add_argument("--source", choices=["mock", "live-raw-log"], default="mock")
+    p_tool.add_argument("--raw-log", type=Path, default=None)
 
     sub.add_parser("mcp-config", help="print a Hermes stdio MCP config snippet for this repo")
     sub.add_parser("providers", help="list configured provider profiles without exposing keys")
@@ -52,7 +54,9 @@ def main(argv: list[str] | None = None) -> int:
         serve_named_pipe(args.pipe)
         return 0
     if args.command == "tool":
-        surface = create_mock_tool_surface()
+        surface = create_live_raw_log_tool_surface() if args.source == "live-raw-log" and args.raw_log is None else (
+            create_live_raw_log_tool_surface(args.raw_log) if args.source == "live-raw-log" else create_mock_tool_surface()
+        )
         calls = {
             "ambient": surface.get_ambient_context,
             "trade": surface.fetch_trade_offers,

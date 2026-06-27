@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .tools import create_mock_tool_surface
+from .tools import create_tool_surface_from_env
 
 
 def build_mcp_server():
@@ -17,12 +17,12 @@ def build_mcp_server():
     except ImportError as exc:  # pragma: no cover - exercised by CLI smoke without mcp extra
         raise RuntimeError("MCP support requires the optional 'mcp' extra: uv pip install -e '.[mcp]'") from exc
 
-    surface = create_mock_tool_surface()
+    surface = create_tool_surface_from_env()
     mcp = FastMCP("x4-llm-copilot")
 
     @mcp.tool()
     def get_ambient_context() -> dict[str, Any]:
-        """Return current ambient player context. Mock-backed until live X4 telemetry exists."""
+        """Return current ambient player context. Mock by default; live when X4_COPILOT_TELEMETRY_SOURCE=live_raw_log."""
         return surface.get_ambient_context()
 
     @mcp.tool()

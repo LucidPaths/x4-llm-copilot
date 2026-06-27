@@ -72,15 +72,38 @@ The MCP SDK is optional. Install/run with the `mcp` extra when you want the stdi
 
 ## Current data source
 
-The tool surface currently uses `MockTelemetryFetcher` and fixture files in `examples/`:
+By default the tool surface uses `MockTelemetryFetcher` and fixture files in `examples/`:
 
-- `ambient_context_payload.json`
+- `ambient_context_payload.json` (now normalized from the first verified live Lua `ambient_probe_v1` payload)
 - `trade_payload.json`
 - `ship_status_payload.json`
 - `faction_state_payload.json`
 - `sector_objects_payload.json`
 
-Every mock result is marked via structured provenance (`FetchProvenance(source="mock", stale=True)`) and surfaced as `source: "mock"` / `stale: true`. The tool layer does **not** parse `as_of` text to infer provenance. Real game data requires replacing the mock fetcher with the live pipe-backed fetcher after the Lua/MD telemetry reader exists.
+Every mock result is marked via structured provenance (`FetchProvenance(source="mock", stale=True)`) and surfaced as `source: "mock"` / `stale: true`. The tool layer does **not** parse `as_of` text to infer provenance.
+
+A first live read path is verified for ambient/ship-status data only:
+
+1. X4 Lua emits `telemetry_raw` with `schema: "ambient_probe_v1"`.
+2. The MD layer forwards `event.param3` to `md.Named_Pipes.Write`.
+3. `x4-copilot serve-pipe --pipe x4_llm_copilot` ACKs and appends the literal JSON to `var/live_telemetry_raw.jsonl`.
+4. `RawTelemetryLogFetcher` maps the latest raw line into `TelemetryPayload` for `ambient_context` and `ship_status`.
+
+Use live raw ambient in the CLI:
+
+```bash
+uv run x4-copilot tool ambient --source live-raw-log
+```
+
+Use live raw ambient in the MCP server:
+
+```bash
+X4_COPILOT_TELEMETRY_SOURCE=live_raw_log \
+X4_COPILOT_RAW_TELEMETRY_LOG=var/live_telemetry_raw.jsonl \
+uv run --extra mcp x4-copilot-mcp
+```
+
+Trade, faction, and sector-object tools remain mock/stale until their Lua read paths exist. The mixed live/mock surface reports provenance per result, so Hermes can see which tools are real.
 
 ## Why MCP over direct Hermes tool now?
 
@@ -88,8 +111,8 @@ The handoff's risk was that Hermes might not consume MCP. Verified current Herme
 
 ## Not implemented yet
 
-- Live X4 Lua/MD telemetry reads.
-- Pipe-backed `TelemetryFetcher` for the tool surface.
+- Live X4 trade-offer, faction-state, and sector-object Lua reads.
+- Direct request/response pipe-backed `TelemetryFetcher` for scoped non-ambient fetches.
 - Reflex STT/TTS path.
 - Hermes memory feed for reflex Q/A.
 - Mutating actions (`set_waypoint`, `mark_target`).
