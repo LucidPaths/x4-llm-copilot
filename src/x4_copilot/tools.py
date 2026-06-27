@@ -128,7 +128,7 @@ class LivePipeTelemetryFetcher:
     """
 
     provenance = FetchProvenance(source="x4_lua_live_pipe", stale=False)
-    supported_intents = frozenset({"ambient_context", "ship_status"})
+    supported_intents = frozenset({"ambient_context", "ship_status", "trade_in_sector"})
 
     def __init__(
         self,
@@ -147,10 +147,12 @@ class LivePipeTelemetryFetcher:
 
     def __call__(self, request: FetchRequest) -> TelemetryPayload:
         if request.intent not in self.supported_intents:
-            raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status, got {request.intent}")
+            raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status/trade_in_sector, got {request.intent}")
         self._ensure_ready()
         self._write(request.to_json(), phase="send fetch request")
         raw = self._read_raw_fetch_response()
+        if request.intent == "trade_in_sector":
+            return telemetry_payload_from_raw_trade(raw)
         payload = telemetry_payload_from_raw_ambient(raw)
         if request.intent == "ship_status":
             return TelemetryPayload(intent="ship_status", ambient=payload.ambient, data=payload.data, as_of="fresh live pipe response")
@@ -282,6 +284,50 @@ def telemetry_payload_from_raw_ambient(raw: dict[str, Any]) -> TelemetryPayload:
         ),
         data=data,
         as_of="latest live raw Lua ambient probe",
+    )
+
+
+def telemetry_payload_from_raw_trade(raw: dict[str, Any]) -> TelemetryPayload:
+    if raw.get("type") != "telemetry_raw":
+        raise PayloadError("raw trade telemetry type must be telemetry_raw")
+    if raw.get("intent") != "trade_in_sector":
+        raise PayloadError("raw trade telemetry intent must be trade_in_sector")
+    if raw.get("source") != "x4_lua_live":
+        raise PayloadError("raw trade telemetry source must be x4_lua_live")
+    if raw.get("schema") != "trade_offers_probe_v1":
+        raise PayloadError("raw trade telemetry schema must be trade_offers_probe_v1")
+
+    offers_raw = raw.get("offers_raw")
+    nontrade_raw = raw.get("nontrade_offers_raw")
+    data: list[dict[str, Any]] = []
+    if isinstance(offers_raw, list):
+        for offer in offers_raw:
+            data.append({"kind": "trade_offer_raw", "offer_raw": offer})
+    elif offers_raw is not None:
+        data.append({"kind": "trade_offers_raw", "offers_raw": offers_raw})
+    if nontrade_raw not in (None, []):
+        data.append({"kind": "nontrade_offers_raw", "offers_raw": nontrade_raw})
+    if not data:
+        data.append(
+            {
+                "kind": "trade_probe_metadata",
+                "docked": raw.get("docked"),
+                "trade_container_id": _optional_raw_str(raw.get("trade_container_id")),
+                "trade_container_name": _optional_raw_str(raw.get("trade_container_name")),
+                "offers_raw": offers_raw if offers_raw is not None else [],
+                "nontrade_offers_raw": nontrade_raw if nontrade_raw is not None else [],
+            }
+        )
+
+    return TelemetryPayload(
+        intent="trade_in_sector",
+        ambient=AmbientContext(
+            sector=_optional_raw_str(raw.get("sector_raw")),
+            ship=_optional_raw_str(raw.get("ship_name")),
+            credits=_optional_raw_int(raw.get("player_money"), "player_money"),
+        ),
+        data=data,
+        as_of="fresh live raw Lua trade probe",
     )
 
 

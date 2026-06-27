@@ -48,7 +48,7 @@
           <signal_cue_instantly cue="Delayed_Start_Request_Read" />
         </do_if>
         <do_else>
-          <raise_lua_event name="'x4LLMCopilotFetchAmbient'" />
+          <raise_lua_event name="'x4LLMCopilotFetchAmbient'" param="event.param" />
         </do_else>
       </actions>
     </cue>

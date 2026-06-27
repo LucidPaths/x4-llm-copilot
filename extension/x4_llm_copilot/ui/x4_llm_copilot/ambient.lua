@@ -3,6 +3,7 @@ local C = ffi.C
 
 ffi.cdef[[
     typedef uint64_t UniverseID;
+    UniverseID GetContextByClass(UniverseID componentid, const char* classname, bool includeself);
     UniverseID GetPlayerID(void);
     UniverseID GetPlayerOccupiedShipID(void);
 ]]
@@ -131,10 +132,79 @@ local function emit_ambient(trigger)
     AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
 end
 
+local function emit_trade(trigger)
+    trigger = trigger or "unspecified"
+    local ok, payload = pcall(function()
+        local player_id = C.GetPlayerID()
+        local ship_id = C.GetPlayerOccupiedShipID()
+        local ship64 = ConvertStringTo64Bit(tostring(ship_id))
+        local ship_name, sector, isdocked = GetComponentData(ship64, "name", "sector", "isdocked")
+        local player_money = GetPlayerMoney()
+        local container64 = nil
+        local container_name = nil
+        local container_id = nil
+        local offers = {}
+        local nontradeoffers = {}
+
+        if ship_id ~= 0 and isdocked then
+            container64 = C.GetContextByClass(ship_id, "container", false)
+            if container64 ~= 0 then
+                container_id = ConvertStringToLuaID(tostring(container64))
+                container_name = GetComponentData(container64, "name")
+                offers = GetTradeList(container_id, ConvertStringToLuaID(tostring(ship_id))) or {}
+                nontradeoffers = GetTradeList(container_id, ConvertStringToLuaID(tostring(ship_id)), false) or {}
+            end
+        end
+
+        return "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"trade_in_sector",'
+            .. '"source":"x4_lua_live",'
+            .. '"schema":"trade_offers_probe_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"player_id":' .. json_string(tostring(player_id)) .. ','
+            .. '"ship_id":' .. json_string(tostring(ship_id)) .. ','
+            .. '"ship_name":' .. json_raw_string_or_null(ship_name) .. ','
+            .. '"sector_raw":' .. json_raw_string_or_null(sector) .. ','
+            .. '"player_money":' .. json_number_or_null(player_money) .. ','
+            .. '"docked":' .. tostring(isdocked == true) .. ','
+            .. '"trade_container_id":' .. json_raw_string_or_null(container_id and tostring(container_id) or nil) .. ','
+            .. '"trade_container_name":' .. json_raw_string_or_null(container_name) .. ','
+            .. '"offers_raw":' .. json_value(offers) .. ','
+            .. '"nontrade_offers_raw":' .. json_value(nontradeoffers)
+            .. "}"
+    end)
+
+    if not ok then
+        payload = "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"trade_in_sector",'
+            .. '"source":"x4_lua_live",'
+            .. '"schema":"trade_offers_probe_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"error":' .. json_string(payload)
+            .. "}"
+    end
+
+    DebugError("X4 LLM Copilot Lua trade payload: " .. payload)
+    AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
+end
+
+local function request_intent(request_json)
+    request_json = tostring(request_json or "")
+    local intent = string.match(request_json, '"intent"%s*:%s*"([^"]+)"')
+    return intent or "ambient_context"
+end
+
 function L.Init()
     DebugError("X4 LLM Copilot Lua ambient module initialized")
-    RegisterEvent("x4LLMCopilotFetchAmbient", function()
-        emit_ambient("fetch_response")
+    RegisterEvent("x4LLMCopilotFetchAmbient", function(_, request_json)
+        local intent = request_intent(request_json)
+        if intent == "trade_in_sector" then
+            emit_trade("fetch_response")
+        else
+            emit_ambient("fetch_response")
+        end
     end)
 end
 

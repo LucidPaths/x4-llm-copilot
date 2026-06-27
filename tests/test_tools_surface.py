@@ -14,6 +14,7 @@ from x4_copilot.tools import (
     create_live_raw_log_tool_surface,
     create_mock_tool_surface,
     telemetry_payload_from_raw_ambient,
+    telemetry_payload_from_raw_trade,
 )
 
 
@@ -239,6 +240,34 @@ def test_raw_log_fetcher_refuses_unsupported_intents_without_fixture_fallback(tm
         raise AssertionError("RawTelemetryLogFetcher must not fabricate trade data")
 
 
+def test_raw_trade_probe_preserves_offer_shape_before_schema_lock():
+    payload = telemetry_payload_from_raw_trade(
+        {
+            "type": "telemetry_raw",
+            "intent": "trade_in_sector",
+            "source": "x4_lua_live",
+            "schema": "trade_offers_probe_v1",
+            "ship_name": "Raleigh (Container)",
+            "sector_raw": "Windfall I Union Summit",
+            "player_money": 39392,
+            "trade_container_id": "12345",
+            "trade_container_name": "Test Station",
+            "offers_raw": [
+                {"ware": "water", "amount": 12, "price": 30, "isbuyoffer": True},
+                {"ware": "energycells", "amount": 99, "price": 10, "isselloffer": True},
+            ],
+            "nontrade_offers_raw": [],
+        }
+    )
+
+    assert payload.intent == "trade_in_sector"
+    assert payload.ambient == AmbientContext(sector="Windfall I Union Summit", ship="Raleigh (Container)", credits=39392)
+    assert payload.data == [
+        {"kind": "trade_offer_raw", "offer_raw": {"ware": "water", "amount": 12, "price": 30, "isbuyoffer": True}},
+        {"kind": "trade_offer_raw", "offer_raw": {"ware": "energycells", "amount": 99, "price": 10, "isselloffer": True}},
+    ]
+
+
 def test_live_pipe_fetcher_uses_request_response_not_reload_probe(tmp_path):
     class FakeTransport:
         def __init__(self) -> None:
@@ -304,6 +333,47 @@ def test_live_pipe_fetcher_uses_request_response_not_reload_probe(tmp_path):
     assert payload.data[0]["cargo_raw"] == {"water": 4}
     assert any('"type": "fetch"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
     assert raw_log.read_text(encoding="utf-8").count("telemetry_raw") == 3
+
+
+def test_live_pipe_fetcher_routes_trade_request_to_raw_trade_payload(tmp_path):
+    class FakeTradeTransport:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.messages = [
+                json.dumps(
+                    {
+                        "type": "telemetry_raw",
+                        "intent": "trade_in_sector",
+                        "source": "x4_lua_live",
+                        "schema": "trade_offers_probe_v1",
+                        "trigger": "fetch_response",
+                        "sector_raw": "Windfall I Union Summit",
+                        "ship_name": "Raleigh (Container)",
+                        "player_money": 39392,
+                        "offers_raw": [{"ware": "water", "amount": 7, "price": 30}],
+                        "nontrade_offers_raw": [],
+                    }
+                )
+            ]
+
+        def connect(self) -> None:
+            pass
+
+        def read(self) -> str:
+            return self.messages.pop(0)
+
+        def write(self, message: str) -> None:
+            self.writes.append(message)
+
+        def close(self) -> None:
+            pass
+
+    fetcher = LivePipeTelemetryFetcher(transport=FakeTradeTransport(), raw_log_path=tmp_path / "raw.jsonl")
+    payload = fetcher(FetchRequest(intent="trade_in_sector", args={"radar_only": True}))
+
+    assert payload.intent == "trade_in_sector"
+    assert payload.data == [{"kind": "trade_offer_raw", "offer_raw": {"ware": "water", "amount": 7, "price": 30}}]
+    assert any('"intent": "trade_in_sector"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
 
 
 def test_live_pipe_fetcher_timeout_raises_instead_of_replaying_log(tmp_path):

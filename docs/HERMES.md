@@ -1,6 +1,6 @@
 # Hermes Integration
 
-Status: implemented as a mock-backed, read-only tool surface plus optional stdio MCP wrapper. Ambient/ship-status have two live modes: dev-only JSONL replay and runtime on-demand named-pipe fetch. Trade/faction/sector-object reads are still fixture-backed until their Lua read paths exist.
+Status: implemented as a read-only tool surface plus optional stdio MCP wrapper. Ambient/ship-status have verified runtime on-demand named-pipe fetches. Trade has a raw-first live probe path (`trade_offers_probe_v1`) for schema capture; fixture-backed normalized trade remains the fallback until live offer bytes are inspected and mapped. Faction/sector-object reads are still fixture-backed until their Lua read paths exist.
 
 ## Verdict
 
@@ -109,7 +109,11 @@ Use on-demand live ambient in the CLI:
 
 ```bash
 uv run --extra winpipe x4-copilot tool ambient --source live-pipe
+uv run --extra winpipe x4-copilot tool ship --source live-pipe
+uv run --extra winpipe x4-copilot tool trade --source live-pipe
 ```
+
+`tool trade --source live-pipe` is deliberately raw-first. It sends `intent:"trade_in_sector"`; Lua emits `schema:"trade_offers_probe_v1"` with `offers_raw` / `nontrade_offers_raw`; Python preserves each raw offer as `kind:"trade_offer_raw"` instead of locking field names before live inspection.
 
 Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot` or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 
