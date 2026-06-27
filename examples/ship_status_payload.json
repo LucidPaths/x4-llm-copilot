@@ -1,0 +1,6 @@
+{
+  "type": "telemetry",
+  "intent": "ship_status",
+  "ambient": {"sector": "Silent Witness XI", "ship": "Raleigh Condensate", "credits": 42069, "target": "Scale Plate Pact Courier"},
+  "data": [{"hull": "91%", "shield": "63%", "cargo": "spacefuel: 34", "fuel": "n/a"}]
+}

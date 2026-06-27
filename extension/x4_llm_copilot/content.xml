@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<content id="x4_llm_copilot"
+         name="X4 LLM Copilot"
+         description="Named-pipe telemetry adapter for an external LLM ship computer."
+         author="LucidPaths"
+         version="001"
+         date="2026-06-27"
+         save="0">
+  <dependency id="ws_2042901274" name="Mod Support APIs" optional="false" />
+</content>

@@ -242,3 +242,25 @@ Map onto Mantella's existing Action interface (define X4 equivalents: `set_waypo
 
 ---
 *Design captured from an ideation session. Player context: pirate/smuggler/trader route (Stranded start), limited weekend playtime, strong-CPU gaming box (→ keep inference off-box), comfortable writing custom provider/auth routing. Build read-only advisor first; let real play define the telemetry schema before locking §5.*
+
+
+---
+
+## Repository status
+
+This repo has moved past design-only. It now includes an executable Python adapter spine, sample telemetry payloads, tests, and an X4 extension skeleton.
+
+Quick smoke:
+
+```bash
+uv run x4-copilot classify "what are goods selling for in this system"
+uv run x4-copilot answer "what's selling here" --payload examples/trade_payload.json
+uv run pytest -q
+```
+
+See:
+
+- `docs/ARCHITECTURE.md`
+- `docs/INTEGRATION.md`
+- `docs/ROADMAP.md`
+- `extension/x4_llm_copilot/`
