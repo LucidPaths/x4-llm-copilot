@@ -44,13 +44,22 @@
       <actions>
         <debug_text text="'X4 LLM Copilot: request read result: %s'.[event.param]" filter="general" />
         <do_if value="event.param == 'ERROR' or event.param == 'TIMEOUT' or event.param == 'CANCELLED'">
-          <debug_text text="'X4 LLM Copilot: request read failed; retrying: %s'.[event.param]" filter="general" />
-          <wait exact="2s" />
-          <signal_cue_instantly cue="Start_Request_Read" />
+          <debug_text text="'X4 LLM Copilot: request read failed; retrying after delay: %s'.[event.param]" filter="general" />
+          <signal_cue_instantly cue="Delayed_Start_Request_Read" />
         </do_if>
         <do_else>
           <raise_lua_event name="'x4LLMCopilotFetchAmbient'" />
         </do_else>
+      </actions>
+    </cue>
+
+    <cue name="Delayed_Start_Request_Read" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <delay exact="2s" />
+      <actions>
+        <signal_cue_instantly cue="Start_Request_Read" />
       </actions>
     </cue>
 
