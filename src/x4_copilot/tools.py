@@ -139,8 +139,8 @@ def telemetry_payload_from_raw_ambient(raw: dict[str, Any]) -> TelemetryPayload:
         raise PayloadError("raw telemetry intent must be ambient_context")
     if raw.get("source") != "x4_lua_live":
         raise PayloadError("raw telemetry source must be x4_lua_live")
-    if raw.get("schema") != "ambient_probe_v1":
-        raise PayloadError("raw telemetry schema must be ambient_probe_v1")
+    if raw.get("schema") not in {"ambient_probe_v1", "ambient_probe_v2"}:
+        raise PayloadError("raw telemetry schema must be ambient_probe_v1 or ambient_probe_v2")
 
     data: list[dict[str, Any]] = [
         {
@@ -149,11 +149,16 @@ def telemetry_payload_from_raw_ambient(raw: dict[str, Any]) -> TelemetryPayload:
             "ship_id": _optional_raw_str(raw.get("ship_id")),
             "hull_percent": _optional_raw_number(raw.get("hullpercent"), "hullpercent"),
             "shield_percent": _optional_raw_number(raw.get("shieldpercent"), "shieldpercent"),
+            "cargo_raw": _optional_raw_json(raw.get("cargo_raw")),
         }
     ]
     return TelemetryPayload(
         intent="ambient_context",
-        ambient=AmbientContext(sector=_optional_raw_str(raw.get("sector_raw")), ship=_optional_raw_str(raw.get("ship_name"))),
+        ambient=AmbientContext(
+            sector=_optional_raw_str(raw.get("sector_raw")),
+            ship=_optional_raw_str(raw.get("ship_name")),
+            credits=_optional_raw_int(raw.get("player_money"), "player_money"),
+        ),
         data=data,
         as_of="latest live raw Lua ambient probe",
     )
@@ -178,6 +183,17 @@ def _optional_raw_number(value: Any, label: str) -> int | float | None:
     except ValueError as exc:
         raise PayloadError(f"{label} must be a number") from exc
     return int(number) if number.is_integer() else number
+
+
+def _optional_raw_int(value: Any, label: str) -> int | None:
+    number = _optional_raw_number(value, label)
+    if number is None:
+        return None
+    return int(number)
+
+
+def _optional_raw_json(value: Any) -> Any:
+    return value
 
 
 class OverlayTelemetryFetcher:

@@ -56,9 +56,11 @@ def test_stdio_mcp_client_can_call_live_raw_ambient(tmp_path):
                 "type": "telemetry_raw",
                 "intent": "ambient_context",
                 "source": "x4_lua_live",
-                "schema": "ambient_probe_v1",
+                "schema": "ambient_probe_v2",
                 "ship_name": "Raleigh (Container)",
                 "sector_raw": "Windfall I Union Summit",
+                "player_money": 123456,
+                "cargo_raw": {"energycells": 42},
                 "hullpercent": 100,
                 "shieldpercent": 100,
             }
@@ -81,5 +83,6 @@ def test_stdio_mcp_client_can_call_live_raw_ambient(tmp_path):
 
     assert payload["sector"] == "Windfall I Union Summit"
     assert payload["ship"] == "Raleigh (Container)"
+    assert payload["credits"] == 123456
     assert payload["source"] == "x4_lua_live_raw_log"
     assert payload["stale"] is False

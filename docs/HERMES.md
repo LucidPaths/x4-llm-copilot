@@ -74,7 +74,7 @@ The MCP SDK is optional. Install/run with the `mcp` extra when you want the stdi
 
 By default the tool surface uses `MockTelemetryFetcher` and fixture files in `examples/`:
 
-- `ambient_context_payload.json` (now normalized from the first verified live Lua `ambient_probe_v1` payload)
+- `ambient_context_payload.json` (now normalized from the first verified live Lua `ambient_probe_v2` payload: sector, player money, ship hull/shield, and raw cargo shape)
 - `trade_payload.json`
 - `ship_status_payload.json`
 - `faction_state_payload.json`
@@ -84,10 +84,10 @@ Every mock result is marked via structured provenance (`FetchProvenance(source="
 
 A first live read path is verified for ambient/ship-status data only:
 
-1. X4 Lua emits `telemetry_raw` with `schema: "ambient_probe_v1"`.
+1. X4 Lua emits `telemetry_raw` with `schema: "ambient_probe_v2"`.
 2. The MD layer forwards `event.param3` to `md.Named_Pipes.Write`.
 3. `x4-copilot serve-pipe --pipe x4_llm_copilot` ACKs and appends the literal JSON to `var/live_telemetry_raw.jsonl`.
-4. `RawTelemetryLogFetcher` maps the latest raw line into `TelemetryPayload` for `ambient_context` and `ship_status`.
+4. `RawTelemetryLogFetcher` maps the latest raw line into `TelemetryPayload` for `ambient_context` and `ship_status`. `player_money` becomes `ambient.credits`; `cargo_raw` remains raw/unresolved until a non-empty live cargo payload defines the ware-ID shape and the ID-resolution boundary is chosen.
 
 Use live raw ambient in the CLI:
 

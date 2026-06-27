@@ -21,6 +21,7 @@ def test_mock_tool_surface_returns_all_read_tool_shapes():
 
     ambient = surface.get_ambient_context()
     assert ambient["sector"] == "Windfall I Union Summit"
+    assert ambient["credits"] == 39670
     assert ambient["source"] == "mock"
     assert ambient["stale"] is True
 
@@ -165,18 +166,20 @@ def test_raw_ambient_probe_maps_to_stable_telemetry_payload():
             "type": "telemetry_raw",
             "intent": "ambient_context",
             "source": "x4_lua_live",
-            "schema": "ambient_probe_v1",
+            "schema": "ambient_probe_v2",
             "player_id": "212884ULL",
             "ship_id": "212875ULL",
             "ship_name": "Raleigh (Container)",
             "sector_raw": "Windfall I Union Summit",
+            "player_money": 123456,
+            "cargo_raw": {"energycells": 42},
             "hullpercent": 100,
             "shieldpercent": 100,
         }
     )
 
     assert payload.intent == "ambient_context"
-    assert payload.ambient == AmbientContext(sector="Windfall I Union Summit", ship="Raleigh (Container)")
+    assert payload.ambient == AmbientContext(sector="Windfall I Union Summit", ship="Raleigh (Container)", credits=123456)
     assert payload.data == [
         {
             "kind": "ship_status",
@@ -184,6 +187,7 @@ def test_raw_ambient_probe_maps_to_stable_telemetry_payload():
             "ship_id": "212875ULL",
             "hull_percent": 100,
             "shield_percent": 100,
+            "cargo_raw": {"energycells": 42},
         }
     ]
 
@@ -196,9 +200,11 @@ def test_live_raw_log_surface_returns_live_ambient_and_mock_fallback(tmp_path):
                 "type": "telemetry_raw",
                 "intent": "ambient_context",
                 "source": "x4_lua_live",
-                "schema": "ambient_probe_v1",
+                "schema": "ambient_probe_v2",
                 "ship_name": "Raleigh (Container)",
                 "sector_raw": "Windfall I Union Summit",
+                "player_money": 123456,
+                "cargo_raw": {"energycells": 42},
                 "hullpercent": 100,
                 "shieldpercent": 100,
             }
@@ -213,6 +219,7 @@ def test_live_raw_log_surface_returns_live_ambient_and_mock_fallback(tmp_path):
 
     assert ambient["sector"] == "Windfall I Union Summit"
     assert ambient["ship"] == "Raleigh (Container)"
+    assert ambient["credits"] == 123456
     assert ambient["source"] == "x4_lua_live_raw_log"
     assert ambient["stale"] is False
     assert trade["source"] == "mock"

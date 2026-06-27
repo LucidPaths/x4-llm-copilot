@@ -29,7 +29,7 @@
 - Copied `extension/x4_llm_copilot` into the X4 `extensions/` folder.
 - Ran `x4-copilot serve-pipe --pipe x4_llm_copilot` with pywin32 installed.
 - Validated exact MD `Named_Pipes.*` call shapes in the live X4 debug log, including the key correction that Lua `AddUITriggeredEvent(..., payload)` arrives in MD as `event.param3`.
-- Verified ping/pong through X4 and captured the first live Lua ambient payload: sector, occupied ship, hull percent, and shield percent.
+- Verified ping/pong through X4 and captured live Lua ambient payloads: sector, player money, occupied ship, hull percent, shield percent, and raw cargo shape (`cargo_raw` stayed an empty array in the first cargo probe).
 - Added `RawTelemetryLogFetcher` and MCP/CLI wiring for live raw ambient/ship-status reads from `var/live_telemetry_raw.jsonl`.
 - Remaining in v0.2: live trade offers, sector objects, and faction relation snapshots.
 

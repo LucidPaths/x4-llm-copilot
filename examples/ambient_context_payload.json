@@ -1,21 +1,22 @@
 {
   "type": "telemetry",
   "intent": "ambient_context",
-  "as_of": "sample normalized from live Lua ambient_probe_v1",
+  "as_of": "sample normalized from live Lua ambient_probe_v2",
   "ambient": {
     "sector": "Windfall I Union Summit",
     "pos": null,
-    "credits": null,
+    "credits": 39670,
     "ship": "Raleigh (Container)",
     "target": null
   },
   "data": [
     {
       "kind": "ship_status",
-      "player_id": "212884ULL",
-      "ship_id": "212875ULL",
+      "player_id": "212892ULL",
+      "ship_id": "212883ULL",
       "hull_percent": 100,
-      "shield_percent": 100
+      "shield_percent": 100,
+      "cargo_raw": []
     }
   ]
 }
