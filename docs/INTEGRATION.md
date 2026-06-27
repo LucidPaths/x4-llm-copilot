@@ -32,6 +32,8 @@ Constraints:
 uv run x4-copilot classify "what are goods selling for in this system"
 uv run x4-copilot fetch-request "ship status"
 uv run x4-copilot answer "what's selling here" --payload examples/trade_payload.json
+uv run x4-copilot tool trade
+uv run x4-copilot mcp-config
 uv run x4-copilot providers
 uv run pytest -q
 ```

@@ -10,10 +10,12 @@ dependencies = []
 
 [project.optional-dependencies]
 winpipe = ["pywin32>=306; platform_system == 'Windows'"]
+mcp = ["mcp>=1.0"]
 dev = ["pytest>=8.0", "ruff>=0.8"]
 
 [project.scripts]
 x4-copilot = "x4_copilot.cli:main"
+x4-copilot-mcp = "x4_copilot.mcp_server:main"
 
 [build-system]
 requires = ["hatchling"]

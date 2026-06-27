@@ -27,6 +27,15 @@ examples/              sample telemetry payloads
 extension/x4_llm_copilot/  X4 extension skeleton
 ```
 
+Additional Hermes-facing surfaces:
+
+- `x4_copilot.tools`: importable, interface-agnostic read tool layer over `TelemetryFetcher`.
+- `x4_copilot.mcp_server`: optional stdio MCP wrapper for Hermes' native MCP client.
+- `x4-copilot tool <name>`: local structured smoke for the mock-backed tool surface.
+- `x4-copilot-mcp`: stdio MCP server entry point, installed via the `mcp` extra.
+
+The tool layer is deliberately model-free: no provider routing, no keys, no prose generation. Hermes owns model routing on the MCP path; `llm.py` remains only for the separate reflex advisor path.
+
 ## Protocol
 
 Fetch request:

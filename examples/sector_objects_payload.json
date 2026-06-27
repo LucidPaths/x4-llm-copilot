@@ -1,0 +1,12 @@
+{
+  "type": "telemetry",
+  "intent": "sector_objects",
+  "as_of": "sample fixture",
+  "ambient": {"sector": "Grand Exchange IV", "pos": [0, 0, 0], "credits": 184000, "ship": "Kestrel Vanguard", "target": "Unknown Object"},
+  "data": [
+    {"name": "Profit Center Alpha", "type": "station", "dist_km": 12},
+    {"name": "North Gate", "type": "gate", "dist_km": 38},
+    {"name": "Abandoned Lockbox", "type": "lockbox", "dist_km": 4.2},
+    {"name": "Wrecked Courier", "type": "wreck", "dist_km": 8.7}
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "type": "telemetry",
+  "intent": "faction_state",
+  "as_of": "sample fixture",
+  "ambient": {"sector": "Hatikvah's Choice I", "pos": [12.5, 0, -44.2], "credits": 184000, "ship": "Kestrel Vanguard", "target": null},
+  "data": [
+    {
+      "relations": [
+        {"faction": "Argon Federation", "standing": 12, "trend": "stable"},
+        {"faction": "Scale Plate Pact", "standing": -18, "trend": "hostile"},
+        {"faction": "Xenon", "standing": -30, "trend": "hostile"}
+      ],
+      "events": [
+        {"kind": "combat", "summary": "Xenon raiders reported near the north gate", "age_min": 14},
+        {"kind": "diplomacy", "summary": "No confirmed relation changes in the current sample", "age_min": 60}
+      ]
+    }
+  ]
+}

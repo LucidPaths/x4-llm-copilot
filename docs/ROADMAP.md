@@ -11,6 +11,15 @@
 - X4 extension packaging skeleton (`content.xml` + MD load-log cue only; no unvalidated Lua/UI hooks).
 - Tests and sample telemetry payloads.
 
+## v0.1.1 — Hermes integration scaffold — done
+
+- Verified Hermes has a native MCP client for stdio servers.
+- Added `x4_copilot.tools`: a model-free, read-only-default tool surface over `TelemetryFetcher`.
+- Added mock fixtures for all four initial fetch intents.
+- Added `x4-copilot-mcp`: optional stdio MCP wrapper for Hermes and other MCP clients.
+- Added action stubs that refuse by default and never mutate game state.
+- Documented the hard boundary: Hermes path is mock-backed until the live Lua/MD telemetry reader exists.
+
 ## v0.2 — live X4 pipe and telemetry reads
 
 - Install `sn_mod_support_apis` in X4.

@@ -10,6 +10,7 @@ from .llm import advisor_from_env, list_ollama_models, list_provider_profiles
 from .models import TelemetryPayload
 from .protocol import FetchRequest
 from .server import serve_named_pipe
+from .tools import create_mock_tool_surface
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,6 +26,10 @@ def main(argv: list[str] | None = None) -> int:
     p_pipe = sub.add_parser("serve-pipe", help="serve the Windows named pipe for X4")
     p_pipe.add_argument("--pipe", default="x4_llm_copilot")
 
+    p_tool = sub.add_parser("tool", help="call the mock-backed structured tool surface")
+    p_tool.add_argument("name", choices=["ambient", "trade", "ship", "faction", "objects"])
+
+    sub.add_parser("mcp-config", help="print a Hermes stdio MCP config snippet for this repo")
     sub.add_parser("providers", help="list configured provider profiles without exposing keys")
 
     p_models = sub.add_parser("ollama-models", help="list Ollama Cloud models using OLLAMA_API_KEY")
@@ -45,6 +50,35 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "serve-pipe":
         serve_named_pipe(args.pipe)
+        return 0
+    if args.command == "tool":
+        surface = create_mock_tool_surface()
+        calls = {
+            "ambient": surface.get_ambient_context,
+            "trade": surface.fetch_trade_offers,
+            "ship": surface.fetch_ship_status,
+            "faction": surface.fetch_faction_state,
+            "objects": surface.fetch_sector_objects,
+        }
+        print(json.dumps(calls[args.name](), ensure_ascii=False))
+        return 0
+    if args.command == "mcp-config":
+        print(
+            json.dumps(
+                {
+                    "mcp_servers": {
+                        "x4_copilot": {
+                            "command": "uv",
+                            "args": ["--directory", str(Path(__file__).resolve().parents[2]), "run", "--extra", "mcp", "x4-copilot-mcp"],
+                            "timeout": 30,
+                            "connect_timeout": 30,
+                        }
+                    }
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0
     if args.command == "providers":
         print(json.dumps([profile.__dict__ for profile in list_provider_profiles()], ensure_ascii=False))

@@ -248,13 +248,17 @@ Map onto Mantella's existing Action interface (define X4 equivalents: `set_waypo
 
 ## Repository status
 
-This repo has moved past design-only. It now includes an executable Python adapter spine, sample telemetry payloads, tests, and an X4 extension skeleton.
+This repo has moved past design-only. It now includes an executable Python adapter spine, sample telemetry payloads, tests, a Hermes/MCP mock-backed tool surface, and an X4 extension skeleton.
+
+Hermes integration is possible with the current Hermes stack: Hermes has a native MCP client for stdio servers. The implemented path is `x4_copilot.tools` (plain importable functions over `TelemetryFetcher`) plus `x4-copilot-mcp` (stdio MCP wrapper). It is mock-backed until the live Lua/MD telemetry reader exists; no live game data is fabricated.
 
 Quick smoke:
 
 ```bash
 uv run x4-copilot classify "what are goods selling for in this system"
 uv run x4-copilot answer "what's selling here" --payload examples/trade_payload.json
+uv run x4-copilot tool trade
+uv run x4-copilot mcp-config
 uv run x4-copilot providers
 uv run pytest -q
 ```
@@ -263,5 +267,6 @@ See:
 
 - `docs/ARCHITECTURE.md`
 - `docs/INTEGRATION.md`
+- `docs/HERMES.md`
 - `docs/ROADMAP.md`
 - `extension/x4_llm_copilot/`
