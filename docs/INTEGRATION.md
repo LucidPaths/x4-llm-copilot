@@ -34,6 +34,7 @@ uv run x4-copilot fetch-request "ship status"
 uv run x4-copilot answer "what's selling here" --payload examples/trade_payload.json
 uv run x4-copilot tool trade
 uv run x4-copilot mcp-config
+uv run python -m pytest tests/test_mcp_integration.py -q
 uv run x4-copilot providers
 uv run pytest -q
 ```

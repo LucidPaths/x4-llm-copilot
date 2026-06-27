@@ -1,0 +1,7 @@
+{
+  "type": "telemetry",
+  "intent": "ambient_context",
+  "as_of": "sample fixture",
+  "ambient": {"sector": "Grand Exchange IV", "pos": [0, 0, 0], "credits": 184000, "ship": "Kestrel Vanguard", "target": null},
+  "data": []
+}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, get_args
 
-Intent = Literal["trade_in_sector", "faction_state", "ship_status", "sector_objects", "unknown"]
+Intent = Literal["ambient_context", "trade_in_sector", "faction_state", "ship_status", "sector_objects", "unknown"]
 VALID_INTENTS = frozenset(get_args(Intent))
 
 

@@ -34,7 +34,7 @@ Additional Hermes-facing surfaces:
 - `x4-copilot tool <name>`: local structured smoke for the mock-backed tool surface.
 - `x4-copilot-mcp`: stdio MCP server entry point, installed via the `mcp` extra.
 
-The tool layer is deliberately model-free: no provider routing, no keys, no prose generation. Hermes owns model routing on the MCP path; `llm.py` remains only for the separate reflex advisor path.
+The tool layer is deliberately model-free: no provider routing, no keys, no prose generation. Hermes owns model routing on the MCP path; `llm.py` remains only for the separate reflex advisor path. Provenance is structured (`FetchProvenance`) instead of inferred from display timestamps, and ambient context has its own fetch intent so a live adapter can answer it cheaply without doing a full ship-status fetch.
 
 ## Protocol
 

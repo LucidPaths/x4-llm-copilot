@@ -15,7 +15,7 @@ jobs:
       - name: Set up Python
         run: uv python install 3.11
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra mcp
       - name: Lint
         run: uv run ruff check .
       - name: Test
@@ -25,3 +25,6 @@ jobs:
           uv run x4-copilot classify "what are goods selling for in this system"
           uv run x4-copilot providers
           uv run x4-copilot answer "what's selling here" --payload examples/trade_payload.json
+          uv run x4-copilot tool trade
+          uv run x4-copilot mcp-config
+          uv run python -c "from x4_copilot.mcp_server import build_mcp_server; print(type(build_mcp_server()).__name__)"

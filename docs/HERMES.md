@@ -74,12 +74,13 @@ The MCP SDK is optional. Install/run with the `mcp` extra when you want the stdi
 
 The tool surface currently uses `MockTelemetryFetcher` and fixture files in `examples/`:
 
+- `ambient_context_payload.json`
 - `trade_payload.json`
 - `ship_status_payload.json`
 - `faction_state_payload.json`
 - `sector_objects_payload.json`
 
-Every mock result is marked stale/source-mock via `as_of: "sample fixture"` and `source: "mock"`. Real game data requires replacing the mock fetcher with the live pipe-backed fetcher after the Lua/MD telemetry reader exists.
+Every mock result is marked via structured provenance (`FetchProvenance(source="mock", stale=True)`) and surfaced as `source: "mock"` / `stale: true`. The tool layer does **not** parse `as_of` text to infer provenance. Real game data requires replacing the mock fetcher with the live pipe-backed fetcher after the Lua/MD telemetry reader exists.
 
 ## Why MCP over direct Hermes tool now?
 
