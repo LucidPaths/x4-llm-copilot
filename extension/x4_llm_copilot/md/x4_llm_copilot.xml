@@ -17,37 +17,40 @@
         <event_cue_signalled cue="md.Named_Pipes.Reloaded" />
       </conditions>
       <actions>
-        <debug_text text="'X4 LLM Copilot: Named Pipes API reloaded; sending ping smoke.'" filter="general" />
-        <signal_cue_instantly cue="md.Named_Pipes.Write" param="table[
+        <debug_text text="'X4 LLM Copilot: Named Pipes API reloaded; starting request read loop.'" filter="general" />
+        <signal_cue_instantly cue="Start_Request_Read" />
+      </actions>
+    </cue>
+
+
+    <cue name="Start_Request_Read" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: starting request read loop.'" filter="general" />
+        <signal_cue_instantly cue="md.Named_Pipes.Read" param="table[
           $pipe='x4_llm_copilot',
-          $msg='{&quot;type&quot;:&quot;ping&quot;}',
-          $cue=Ping_Write_Callback,
-          $time=5s]" />
+          $cue=Request_Read_Callback,
+          $time=3600s,
+          $cancel_on_timeout=true]" />
       </actions>
     </cue>
 
-    <cue name="Ping_Write_Callback" instantiate="true">
+    <cue name="Request_Read_Callback" instantiate="true">
       <conditions>
         <event_cue_signalled />
       </conditions>
       <actions>
-        <debug_text text="'X4 LLM Copilot: ping write result: %s'.[event.param]" filter="general" />
-        <do_if value="event.param == 'SUCCESS'">
-          <signal_cue_instantly cue="md.Named_Pipes.Read" param="table[
-            $pipe='x4_llm_copilot',
-            $cue=Ping_Read_Callback,
-            $time=5s,
-            $cancel_on_timeout=true]" />
+        <debug_text text="'X4 LLM Copilot: request read result: %s'.[event.param]" filter="general" />
+        <do_if value="event.param == 'ERROR' or event.param == 'TIMEOUT' or event.param == 'CANCELLED'">
+          <debug_text text="'X4 LLM Copilot: request read failed; retrying: %s'.[event.param]" filter="general" />
+          <wait exact="2s" />
+          <signal_cue_instantly cue="Start_Request_Read" />
         </do_if>
-      </actions>
-    </cue>
-
-    <cue name="Ping_Read_Callback" instantiate="true">
-      <conditions>
-        <event_cue_signalled />
-      </conditions>
-      <actions>
-        <debug_text text="'X4 LLM Copilot: ping read result: %s'.[event.param]" filter="general" />
+        <do_else>
+          <raise_lua_event name="'x4LLMCopilotFetchAmbient'" />
+        </do_else>
       </actions>
     </cue>
 
@@ -87,6 +90,7 @@
       </conditions>
       <actions>
         <debug_text text="'X4 LLM Copilot: ambient read result: %s'.[event.param]" filter="general" />
+        <signal_cue_instantly cue="Start_Request_Read" />
       </actions>
     </cue>
 

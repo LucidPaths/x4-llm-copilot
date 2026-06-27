@@ -90,7 +90,8 @@ local function json_value(value, depth)
     return json_string(value)
 end
 
-local function emit_ambient()
+local function emit_ambient(trigger)
+    trigger = trigger or "unspecified"
     local ok, payload = pcall(function()
         local player_id = C.GetPlayerID()
         local ship_id = C.GetPlayerOccupiedShipID()
@@ -103,6 +104,7 @@ local function emit_ambient()
             .. '"intent":"ambient_context",'
             .. '"source":"x4_lua_live",'
             .. '"schema":"ambient_probe_v2",'
+            .. '"trigger":' .. json_string(trigger) .. ','
             .. '"player_id":' .. json_string(tostring(player_id)) .. ','
             .. '"ship_id":' .. json_string(tostring(ship_id)) .. ','
             .. '"ship_name":' .. json_raw_string_or_null(name) .. ','
@@ -120,6 +122,7 @@ local function emit_ambient()
             .. '"intent":"ambient_context",'
             .. '"source":"x4_lua_live",'
             .. '"schema":"ambient_probe_v2",'
+            .. '"trigger":' .. json_string(trigger) .. ','
             .. '"error":' .. json_string(payload)
             .. "}"
     end
@@ -130,7 +133,9 @@ end
 
 function L.Init()
     DebugError("X4 LLM Copilot Lua ambient module initialized")
-    emit_ambient()
+    RegisterEvent("x4LLMCopilotFetchAmbient", function()
+        emit_ambient("fetch_response")
+    end)
 end
 
 Register_OnLoad_Init(L.Init, "extensions.x4_llm_copilot.ui.x4_llm_copilot.ambient")

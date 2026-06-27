@@ -23,6 +23,7 @@ class NamedPipeServer:
 
     pipe_name: str = "x4_llm_copilot"
     buffer_size: int = 64 * 1024
+    timeout_s: float | None = None
 
     def __post_init__(self) -> None:
         self._handle = None

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import queue
 import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -9,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .models import VALID_INTENTS, AmbientContext, Intent, PayloadError, TelemetryPayload
-from .protocol import FetchRequest
+from .pipe import DuplexTransport, NamedPipeServer
+from .protocol import FetchRequest, parse_json_message
 
 TelemetryFetcher = Callable[[FetchRequest], TelemetryPayload]
 
@@ -91,12 +94,12 @@ class MockTelemetryFetcher:
 
 
 class RawTelemetryLogFetcher:
-    """Read the latest literal live X4 Lua probe captured by the pipe server.
+    """Replay the latest literal live X4 Lua probe captured by the pipe server.
 
-    This is intentionally small and read-only: it converts the observed
-    ``telemetry_raw`` ambient probe into the repo's stable ``TelemetryPayload``
-    shape. It does not call models, own credentials, or fabricate unsupported
-    intents.
+    This remains useful for schema capture and offline debugging, but it is not a
+    live runtime fetcher: it can serve stale data if the last pipe write failed.
+    Use ``LivePipeTelemetryFetcher`` when the tool call itself must trigger the
+    X4 read and fail closed on pipe errors.
     """
 
     provenance = FetchProvenance(source="x4_lua_live_raw_log", stale=False)
@@ -113,6 +116,114 @@ class RawTelemetryLogFetcher:
         if request.intent == "ship_status":
             return TelemetryPayload(intent="ship_status", ambient=payload.ambient, data=payload.data, as_of=payload.as_of)
         return payload
+
+
+class LivePipeTelemetryFetcher:
+    """On-demand live fetcher: request -> X4 Lua read -> direct response.
+
+    The JSONL file is append-only observability, not the source of truth. A failed
+    pipe transaction raises ``PayloadError`` instead of replaying the last good
+    capture.
+    """
+
+    provenance = FetchProvenance(source="x4_lua_live_pipe", stale=False)
+    supported_intents = frozenset({"ambient_context", "ship_status"})
+
+    def __init__(
+        self,
+        pipe_name: str = "x4_llm_copilot",
+        *,
+        raw_log_path: str | Path = DEFAULT_RAW_TELEMETRY_LOG,
+        timeout_s: float = 8.0,
+        transport: DuplexTransport | None = None,
+    ) -> None:
+        self.pipe_name = pipe_name
+        self.raw_log_path = Path(raw_log_path)
+        self.timeout_s = timeout_s
+        self._transport = transport
+        self._connected = False
+        self._ready = False
+
+    def __call__(self, request: FetchRequest) -> TelemetryPayload:
+        if request.intent not in self.supported_intents:
+            raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status, got {request.intent}")
+        self._ensure_ready()
+        self._write(request.to_json(), phase="send fetch request")
+        raw = self._read_raw_fetch_response()
+        payload = telemetry_payload_from_raw_ambient(raw)
+        if request.intent == "ship_status":
+            return TelemetryPayload(intent="ship_status", ambient=payload.ambient, data=payload.data, as_of="fresh live pipe response")
+        return TelemetryPayload(intent="ambient_context", ambient=payload.ambient, data=payload.data, as_of="fresh live pipe response")
+
+    def _ensure_ready(self) -> None:
+        transport = self._transport_or_raise()
+        if not self._connected:
+            self._call_transport(transport.connect, phase="connect to X4 pipe")
+            self._connected = True
+        self._ready = True
+
+    def _read_raw_fetch_response(self) -> dict[str, Any]:
+        while True:
+            message = parse_json_message(self._read(phase="read fetch response"))
+            msg_type = message.get("type")
+            if msg_type == "ping":
+                self._write(json.dumps({"type": "pong"}), phase="reply to ping")
+                continue
+            if msg_type != "telemetry_raw":
+                raise PayloadError(f"expected telemetry_raw response from X4, got {msg_type}")
+            append_live_raw_message(message, self.raw_log_path)
+            self._write(_raw_ack(message), phase="ack fetch response")
+            if message.get("trigger") == "fetch_response":
+                return message
+            # Development reload probes are useful evidence but must not satisfy
+            # an on-demand fetch, or stale replay wins again.
+
+    def _read(self, *, phase: str) -> str:
+        return self._call_transport(self._transport_or_raise().read, phase=phase)
+
+    def _write(self, message: str, *, phase: str) -> None:
+        self._call_transport(lambda: self._transport_or_raise().write(message), phase=phase)
+
+    def _call_transport(self, func: Callable[[], Any], *, phase: str) -> Any:
+        result_queue: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
+
+        def run() -> None:
+            try:
+                result_queue.put((True, func()))
+            except Exception as exc:  # noqa: BLE001 - cross-thread transport error propagation
+                result_queue.put((False, exc))
+
+        thread = threading.Thread(target=run, name=f"x4-live-pipe-{phase}", daemon=True)
+        thread.start()
+        try:
+            ok, value = result_queue.get(timeout=self.timeout_s)
+        except queue.Empty as exc:
+            self._connected = False
+            self._ready = False
+            with contextlib.suppress(Exception):
+                self._transport_or_raise().close()
+            raise PayloadError(f"live pipe {phase} timed out after {self.timeout_s:g}s") from exc
+        if ok:
+            return value
+        self._connected = False
+        self._ready = False
+        raise PayloadError(f"live pipe {phase} failed: {value}") from value
+
+    def _transport_or_raise(self) -> DuplexTransport:
+        if self._transport is None:
+            self._transport = NamedPipeServer(self.pipe_name, timeout_s=self.timeout_s)
+        return self._transport
+
+
+def append_live_raw_message(message: dict[str, Any], path: str | Path = DEFAULT_RAW_TELEMETRY_LOG) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(message, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def _raw_ack(message: dict[str, Any]) -> str:
+    return json.dumps({"type": "telemetry_raw_ack", "intent": message.get("intent"), "source": message.get("source")}, ensure_ascii=False)
 
 
 def read_latest_raw_telemetry(path: str | Path = DEFAULT_RAW_TELEMETRY_LOG) -> dict[str, Any]:
@@ -322,8 +433,28 @@ def create_live_raw_log_tool_surface(
     return X4ToolSurface(fetcher, provenance=fetcher.provenance_for(FetchRequest(intent="ambient_context", args={})))
 
 
+def create_live_pipe_tool_surface(
+    pipe_name: str = "x4_llm_copilot",
+    *,
+    raw_log_path: str | Path = DEFAULT_RAW_TELEMETRY_LOG,
+    examples_dir: str | Path = DEFAULT_EXAMPLES_DIR,
+    timeout_s: float = 8.0,
+) -> X4ToolSurface:
+    fetcher = OverlayTelemetryFetcher(
+        LivePipeTelemetryFetcher(pipe_name=pipe_name, raw_log_path=raw_log_path, timeout_s=timeout_s),
+        MockTelemetryFetcher(examples_dir),
+    )
+    return X4ToolSurface(fetcher, provenance=fetcher.provenance_for(FetchRequest(intent="ambient_context", args={})))
+
+
 def create_tool_surface_from_env() -> X4ToolSurface:
     source = os.getenv("X4_COPILOT_TELEMETRY_SOURCE", "mock").strip().lower()
+    if source in {"live_pipe", "pipe", "on_demand"}:
+        return create_live_pipe_tool_surface(
+            os.getenv("X4_COPILOT_PIPE_NAME", "x4_llm_copilot"),
+            raw_log_path=os.getenv("X4_COPILOT_RAW_TELEMETRY_LOG", DEFAULT_RAW_TELEMETRY_LOG),
+            timeout_s=float(os.getenv("X4_COPILOT_PIPE_TIMEOUT_S", "8")),
+        )
     if source in {"live_raw_log", "raw_log", "live"}:
         return create_live_raw_log_tool_surface(os.getenv("X4_COPILOT_RAW_TELEMETRY_LOG", DEFAULT_RAW_TELEMETRY_LOG))
     return create_mock_tool_surface()

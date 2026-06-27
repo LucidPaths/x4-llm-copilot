@@ -1,6 +1,6 @@
 # Hermes Integration
 
-Status: implemented as a mock-backed, read-only tool surface plus optional stdio MCP wrapper. Live X4 telemetry is still blocked on the unimplemented Lua/MD read path.
+Status: implemented as a mock-backed, read-only tool surface plus optional stdio MCP wrapper. Ambient/ship-status have two live modes: dev-only JSONL replay and runtime on-demand named-pipe fetch. Trade/faction/sector-object reads are still fixture-backed until their Lua read paths exist.
 
 ## Verdict
 
@@ -82,9 +82,40 @@ By default the tool surface uses `MockTelemetryFetcher` and fixture files in `ex
 
 Every mock result is marked via structured provenance (`FetchProvenance(source="mock", stale=True)`) and surfaced as `source: "mock"` / `stale: true`. The tool layer does **not** parse `as_of` text to infer provenance.
 
-A first live read path is verified for ambient/ship-status data only:
+A first live read path is verified for ambient/ship-status data only.
 
-1. X4 Lua emits `telemetry_raw` with `schema: "ambient_probe_v2"`.
+### Runtime live pipe mode
+
+This is the source of truth for real co-pilot calls:
+
+1. On `md.Named_Pipes.Reloaded`, X4 MD starts a `md.Named_Pipes.Read` request loop directly and retries transient read errors instead of blocking on an X4→Python ping.
+2. `get_ambient_context()` / `fetch_ship_status()` with `X4_COPILOT_TELEMETRY_SOURCE=live_pipe` writes a `{"type":"fetch", ...}` request down the pipe.
+3. MD receives that request and raises the Lua event `x4LLMCopilotFetchAmbient`.
+4. Lua reads fresh game state and emits `telemetry_raw` with `trigger:"fetch_response"`.
+5. Python returns that response directly and appends it to `var/live_telemetry_raw.jsonl` only as a debug/audit log.
+
+A failed or missing pipe response raises an error. It does **not** replay the last JSONL line.
+
+Use on-demand live ambient in the CLI:
+
+```bash
+uv run --extra winpipe x4-copilot tool ambient --source live-pipe
+```
+
+Use on-demand live ambient in the MCP server:
+
+```bash
+X4_COPILOT_TELEMETRY_SOURCE=live_pipe \
+X4_COPILOT_PIPE_NAME=x4_llm_copilot \
+X4_COPILOT_RAW_TELEMETRY_LOG=var/live_telemetry_raw.jsonl \
+uv run --extra mcp --extra winpipe x4-copilot-mcp
+```
+
+### Development raw-log replay mode
+
+This remains useful for schema capture and offline debugging, but it is not the runtime source of truth:
+
+1. X4 Lua emits `telemetry_raw` with `schema: "ambient_probe_v2"` and `trigger:"reload_probe"` on UI/game reload.
 2. The MD layer forwards `event.param3` to `md.Named_Pipes.Write`.
 3. `x4-copilot serve-pipe --pipe x4_llm_copilot` ACKs and appends the literal JSON to `var/live_telemetry_raw.jsonl`.
 4. `RawTelemetryLogFetcher` maps the latest raw line into `TelemetryPayload` for `ambient_context` and `ship_status`. `player_money` becomes `ambient.credits`; `cargo_raw` remains raw/unresolved until a non-empty live cargo payload defines the ware-ID shape and the ID-resolution boundary is chosen.

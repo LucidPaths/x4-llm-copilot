@@ -6,6 +6,7 @@ from x4_copilot.models import AmbientContext, TelemetryPayload
 from x4_copilot.protocol import FetchRequest
 from x4_copilot.tools import (
     FetchProvenance,
+    LivePipeTelemetryFetcher,
     MockTelemetryFetcher,
     RawTelemetryLogFetcher,
     SerializedFetcher,
@@ -236,6 +237,113 @@ def test_raw_log_fetcher_refuses_unsupported_intents_without_fixture_fallback(tm
         assert "only supports ambient_context/ship_status" in str(exc)
     else:
         raise AssertionError("RawTelemetryLogFetcher must not fabricate trade data")
+
+
+def test_live_pipe_fetcher_uses_request_response_not_reload_probe(tmp_path):
+    class FakeTransport:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.messages = [
+                json.dumps(
+                    {
+                        "type": "telemetry_raw",
+                        "intent": "ambient_context",
+                        "source": "x4_lua_live",
+                        "schema": "ambient_probe_v2",
+                        "trigger": "reload_probe",
+                        "sector_raw": "Old Sector",
+                        "player_money": 1,
+                        "cargo_raw": [],
+                    }
+                ),
+                json.dumps({"type": "ping"}),
+                json.dumps(
+                    {
+                        "type": "telemetry_raw",
+                        "intent": "ambient_context",
+                        "source": "x4_lua_live",
+                        "schema": "ambient_probe_v2",
+                        "trigger": "reload_probe",
+                        "sector_raw": "Still Not It",
+                        "player_money": 2,
+                        "cargo_raw": [],
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "telemetry_raw",
+                        "intent": "ambient_context",
+                        "source": "x4_lua_live",
+                        "schema": "ambient_probe_v2",
+                        "trigger": "fetch_response",
+                        "sector_raw": "Fresh Sector",
+                        "player_money": 3,
+                        "cargo_raw": {"water": 4},
+                    }
+                ),
+            ]
+
+        def connect(self) -> None:
+            pass
+
+        def read(self) -> str:
+            return self.messages.pop(0)
+
+        def write(self, message: str) -> None:
+            self.writes.append(message)
+
+        def close(self) -> None:
+            pass
+
+    raw_log = tmp_path / "live_telemetry_raw.jsonl"
+    fetcher = LivePipeTelemetryFetcher(transport=FakeTransport(), raw_log_path=raw_log)
+    payload = fetcher(FetchRequest(intent="ambient_context", args={"ambient_only": True}))
+
+    assert payload.ambient.sector == "Fresh Sector"
+    assert payload.ambient.credits == 3
+    assert payload.data[0]["cargo_raw"] == {"water": 4}
+    assert any('"type": "fetch"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
+    assert raw_log.read_text(encoding="utf-8").count("telemetry_raw") == 3
+
+
+def test_live_pipe_fetcher_timeout_raises_instead_of_replaying_log(tmp_path):
+    class HangingTransport:
+        def connect(self) -> None:
+            pass
+
+        def read(self) -> str:
+            time.sleep(1)
+            return "{}"
+
+        def write(self, message: str) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    raw_log = tmp_path / "live_telemetry_raw.jsonl"
+    raw_log.write_text(
+        json.dumps(
+            {
+                "type": "telemetry_raw",
+                "intent": "ambient_context",
+                "source": "x4_lua_live",
+                "schema": "ambient_probe_v2",
+                "sector_raw": "Stale Sector",
+                "player_money": 999,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    fetcher = LivePipeTelemetryFetcher(transport=HangingTransport(), raw_log_path=raw_log, timeout_s=0.01)
+
+    try:
+        fetcher(FetchRequest(intent="ambient_context", args={}))
+    except Exception as exc:  # noqa: BLE001 - public contract is fail-closed, asserted by message
+        assert "timed out" in str(exc)
+    else:
+        raise AssertionError("live pipe timeout must fail closed, not replay JSONL")
 
 
 def test_tool_results_are_json_serializable():
