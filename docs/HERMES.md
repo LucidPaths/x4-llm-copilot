@@ -94,7 +94,7 @@ This is the source of truth for real co-pilot calls:
 4. Lua reads fresh game state and emits `telemetry_raw` with `trigger:"fetch_response"`.
 5. Python returns that response directly and appends it to `var/live_telemetry_raw.jsonl` only as a debug/audit log.
 
-A failed or missing pipe response raises an error. It does **not** replay the last JSONL line.
+A failed or missing pipe response raises an error. It does **not** replay the last JSONL line. The `fetch_response` wait is bounded by a single wall-clock deadline, so background probe churn cannot keep the call alive forever by repeatedly resetting per-read timeouts.
 
 Verified live smoke from the running game:
 
@@ -110,6 +110,8 @@ Use on-demand live ambient in the CLI:
 ```bash
 uv run --extra winpipe x4-copilot tool ambient --source live-pipe
 ```
+
+Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot` or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 
 Use on-demand live ambient in the MCP server:
 

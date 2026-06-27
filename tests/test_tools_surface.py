@@ -346,6 +346,47 @@ def test_live_pipe_fetcher_timeout_raises_instead_of_replaying_log(tmp_path):
         raise AssertionError("live pipe timeout must fail closed, not replay JSONL")
 
 
+def test_live_pipe_fetcher_wall_clock_timeout_on_probe_churn(tmp_path):
+    class ProbeChurnTransport:
+        def __init__(self) -> None:
+            self.closed = False
+
+        def connect(self) -> None:
+            pass
+
+        def read(self) -> str:
+            time.sleep(0.004)
+            return json.dumps(
+                {
+                    "type": "telemetry_raw",
+                    "intent": "ambient_context",
+                    "source": "x4_lua_live",
+                    "schema": "ambient_probe_v2",
+                    "trigger": "reload_probe",
+                    "sector_raw": "Probe Churn",
+                    "player_money": 1,
+                    "cargo_raw": [],
+                }
+            )
+
+        def write(self, message: str) -> None:
+            pass
+
+        def close(self) -> None:
+            self.closed = True
+
+    transport = ProbeChurnTransport()
+    fetcher = LivePipeTelemetryFetcher(transport=transport, raw_log_path=tmp_path / "raw.jsonl", timeout_s=0.02)
+
+    try:
+        fetcher(FetchRequest(intent="ambient_context", args={}))
+    except Exception as exc:  # noqa: BLE001 - public contract is fail-closed, asserted by message
+        assert "fetch_response timed out" in str(exc)
+    else:
+        raise AssertionError("probe churn must hit the wall-clock fetch_response deadline")
+    assert transport.closed is True
+
+
 def test_tool_results_are_json_serializable():
     surface = X4ToolSurface(MockTelemetryFetcher())
     json.dumps(surface.fetch_trade_offers())

@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -163,28 +164,36 @@ class LivePipeTelemetryFetcher:
         self._ready = True
 
     def _read_raw_fetch_response(self) -> dict[str, Any]:
+        deadline = time.monotonic() + self.timeout_s
         while True:
-            message = parse_json_message(self._read(phase="read fetch response"))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self._connected = False
+                self._ready = False
+                with contextlib.suppress(Exception):
+                    self._transport_or_raise().close()
+                raise PayloadError(f"live pipe fetch_response timed out after {self.timeout_s:g}s")
+            message = parse_json_message(self._read(phase="read fetch response", timeout_s=remaining))
             msg_type = message.get("type")
             if msg_type == "ping":
-                self._write(json.dumps({"type": "pong"}), phase="reply to ping")
+                self._write(json.dumps({"type": "pong"}), phase="reply to ping", timeout_s=remaining)
                 continue
             if msg_type != "telemetry_raw":
                 raise PayloadError(f"expected telemetry_raw response from X4, got {msg_type}")
             append_live_raw_message(message, self.raw_log_path)
-            self._write(_raw_ack(message), phase="ack fetch response")
+            self._write(_raw_ack(message), phase="ack fetch response", timeout_s=remaining)
             if message.get("trigger") == "fetch_response":
                 return message
             # Development reload probes are useful evidence but must not satisfy
             # an on-demand fetch, or stale replay wins again.
 
-    def _read(self, *, phase: str) -> str:
-        return self._call_transport(self._transport_or_raise().read, phase=phase)
+    def _read(self, *, phase: str, timeout_s: float | None = None) -> str:
+        return self._call_transport(self._transport_or_raise().read, phase=phase, timeout_s=timeout_s)
 
-    def _write(self, message: str, *, phase: str) -> None:
-        self._call_transport(lambda: self._transport_or_raise().write(message), phase=phase)
+    def _write(self, message: str, *, phase: str, timeout_s: float | None = None) -> None:
+        self._call_transport(lambda: self._transport_or_raise().write(message), phase=phase, timeout_s=timeout_s)
 
-    def _call_transport(self, func: Callable[[], Any], *, phase: str) -> Any:
+    def _call_transport(self, func: Callable[[], Any], *, phase: str, timeout_s: float | None = None) -> Any:
         result_queue: queue.Queue[tuple[bool, Any]] = queue.Queue(maxsize=1)
 
         def run() -> None:
@@ -195,14 +204,15 @@ class LivePipeTelemetryFetcher:
 
         thread = threading.Thread(target=run, name=f"x4-live-pipe-{phase}", daemon=True)
         thread.start()
+        effective_timeout = self.timeout_s if timeout_s is None else max(0.001, timeout_s)
         try:
-            ok, value = result_queue.get(timeout=self.timeout_s)
+            ok, value = result_queue.get(timeout=effective_timeout)
         except queue.Empty as exc:
             self._connected = False
             self._ready = False
             with contextlib.suppress(Exception):
                 self._transport_or_raise().close()
-            raise PayloadError(f"live pipe {phase} timed out after {self.timeout_s:g}s") from exc
+            raise PayloadError(f"live pipe {phase} timed out after {effective_timeout:g}s") from exc
         if ok:
             return value
         self._connected = False
