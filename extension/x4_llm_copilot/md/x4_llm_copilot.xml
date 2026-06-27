@@ -8,7 +8,55 @@
         <event_game_started />
       </conditions>
       <actions>
-        <debug_text text="'X4 LLM Copilot skeleton loaded. Live pipe calls are intentionally deferred until validated in-game.'" filter="general" />
+        <debug_text text="'X4 LLM Copilot loaded. Waiting for Named Pipes API before ping smoke.'" filter="general" />
+      </actions>
+    </cue>
+
+    <cue name="Pipe_API_Reloaded" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.Named_Pipes.Reloaded" />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: Named Pipes API reloaded; sending ping smoke.'" filter="general" />
+        <signal_cue_instantly cue="md.Named_Pipes.Write" param="table[
+          $pipe='x4_llm_copilot',
+          $msg='{&quot;type&quot;:&quot;ping&quot;}',
+          $cue=Ping_Write_Callback,
+          $time=5s]" />
+      </actions>
+    </cue>
+
+    <cue name="Ping_Write_Callback" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: ping write result: %s'.[event.param]" filter="general" />
+        <do_if value="event.param == 'SUCCESS'">
+          <signal_cue_instantly cue="md.Named_Pipes.Read" param="table[
+            $pipe='x4_llm_copilot',
+            $cue=Ping_Read_Callback,
+            $time=5s,
+            $cancel_on_timeout=true]" />
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="Ping_Read_Callback" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: ping read result: %s'.[event.param]" filter="general" />
+      </actions>
+    </cue>
+
+    <cue name="Pipe_API_Disabled" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'Named_Pipes'" control="'disabled'" />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: Named Pipes API disabled; Protected UI mode or DLL load is still blocking telemetry.'" filter="general" />
       </actions>
     </cue>
   </cues>
