@@ -88,13 +88,22 @@ A first live read path is verified for ambient/ship-status data only.
 
 This is the source of truth for real co-pilot calls:
 
-1. On `md.Named_Pipes.Reloaded`, X4 MD starts a `md.Named_Pipes.Read` request loop directly and retries transient read errors instead of blocking on an X4→Python ping.
+1. On `md.Named_Pipes.Reloaded`, X4 MD starts a `md.Named_Pipes.Read` request loop directly and retries transient read errors instead of blocking on an X4→Python ping. Startup/read errors are routed through a delayed retry cue so a missing pipe server does not permanently dead-end the loop.
 2. `get_ambient_context()` / `fetch_ship_status()` with `X4_COPILOT_TELEMETRY_SOURCE=live_pipe` writes a `{"type":"fetch", ...}` request down the pipe.
 3. MD receives that request and raises the Lua event `x4LLMCopilotFetchAmbient`.
 4. Lua reads fresh game state and emits `telemetry_raw` with `trigger:"fetch_response"`.
 5. Python returns that response directly and appends it to `var/live_telemetry_raw.jsonl` only as a debug/audit log.
 
 A failed or missing pipe response raises an error. It does **not** replay the last JSONL line.
+
+Verified live smoke from the running game:
+
+```bash
+uv run --extra winpipe x4-copilot tool ambient --source live-pipe --timeout 60
+# {"sector":"Windfall I Union Summit", "credits":39482, "ship":"Raleigh (Container)", "source":"x4_lua_live_pipe", "stale":false, ...}
+```
+
+Known live caveat: repeated UI/game reloads can leave multiple idle retry-loop instances until a clean game restart. This can add duplicate `request read failed; retrying after delay` log lines when no pipe server is present, but on-demand live fetches still complete and return fresh `fetch_response` payloads.
 
 Use on-demand live ambient in the CLI:
 

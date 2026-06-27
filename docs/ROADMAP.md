@@ -27,11 +27,15 @@
 
 - Installed `sn_mod_support_apis` in X4.
 - Copied `extension/x4_llm_copilot` into the X4 `extensions/` folder.
-- Ran `x4-copilot serve-pipe --pipe x4_llm_copilot` with pywin32 installed.
+- Ran `x4-copilot serve-pipe --pipe x4_llm_copilot` with pywin32 installed for raw-log capture.
 - Validated exact MD `Named_Pipes.*` call shapes in the live X4 debug log, including the key correction that Lua `AddUITriggeredEvent(..., payload)` arrives in MD as `event.param3`.
-- Verified ping/pong through X4 and captured live Lua ambient payloads: sector, player money, occupied ship, hull percent, shield percent, and raw cargo shape (`cargo_raw` stayed an empty array in the first cargo probe).
-- Added `RawTelemetryLogFetcher` and MCP/CLI wiring for live raw ambient/ship-status reads from `var/live_telemetry_raw.jsonl`.
-- Remaining in v0.2: live trade offers, sector objects, and faction relation snapshots.
+- Verified ping/pong through X4 and captured live Lua ambient payloads: sector, player money, occupied ship, hull percent, shield percent, and raw cargo shape.
+- Verified `ambient_probe_v2` cargo shape: empty hold can be `[]`; non-empty hold is an object mapping ware ID to quantity, e.g. `{"water": 6}`.
+- Added `RawTelemetryLogFetcher` and MCP/CLI wiring for live raw ambient/ship-status reads from `var/live_telemetry_raw.jsonl`; this is now documented as development/debug replay only.
+- Added runtime on-demand live pipe mode (`--source live-pipe` / `X4_COPILOT_TELEMETRY_SOURCE=live_pipe`) that sends a `fetch` request, requires a fresh `trigger:"fetch_response"`, stamps `source:"x4_lua_live_pipe"`, and fails closed instead of replaying stale JSONL.
+- Verified live on-demand ambient smoke from the running game: `uv run --extra winpipe x4-copilot tool ambient --source live-pipe --timeout 60` returned `source:"x4_lua_live_pipe"`, `stale:false`, sector `Windfall I Union Summit`, credits `39482`, ship `Raleigh (Container)`.
+- Added a delayed MD retry cue for startup/read-loop errors so missing pipe servers do not permanently dead-end the request loop. Current live caveat: after several reload/retry cycles, duplicate retry loop instances can still exist until the game is restarted; the live fetch path works regardless.
+- Remaining in v0.2: live trade offers, sector objects, faction relation snapshots, and cleanup of duplicate idle retry loop instances.
 
 ## v0.3 — brain integration
 
