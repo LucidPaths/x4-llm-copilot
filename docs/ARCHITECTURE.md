@@ -5,9 +5,9 @@ This repo contains the executable adapter spine for the X4 LLM co-pilot idea in 
 ## Boundary
 
 1. **X4 adapter**: Windows-only extension + named-pipe protocol. It extracts scoped telemetry from live game state and accepts later safe actions.
-2. **Brain boundary**: provider-agnostic advisor layer. It can be a deterministic fallback, an OpenAI-compatible model endpoint, or a future Pantella/Mantella fork.
+2. **Brain boundary**: provider-agnostic advisor layer. It can be a deterministic fallback, an Ollama Cloud wrapper, a generic OpenAI-compatible model endpoint, or a future Pantella/Mantella fork.
 
-The adapter protocol is intentionally independent from Mantella/Pantella. That keeps the hard X4 work reusable even if the brain base changes.
+The adapter protocol is intentionally independent from Mantella/Pantella. That keeps the hard X4 work reusable even if the brain base changes. The provider runtime was cannibalized from the World Engine pattern: environment profile selection, Ollama Cloud as a first-class profile, `/v1/models` model discovery, no key echoing, and `message.reasoning` fallback for Ollama/OpenAI-compatible quirks.
 
 ## Verified external seams
 
@@ -48,7 +48,19 @@ Answer:
 
 ## Provider configuration
 
-The default advisor is deterministic and requires no key. To use an OpenAI-compatible endpoint:
+The default advisor is deterministic and requires no key.
+
+Ollama Cloud first-class path:
+
+```bash
+export X4_COPILOT_PROVIDER="ollama"
+export OLLAMA_API_KEY="..."
+export OLLAMA_MODEL="glm-5.2"
+uv run x4-copilot providers
+uv run x4-copilot ollama-models
+```
+
+Generic OpenAI-compatible path:
 
 ```bash
 export X4_COPILOT_OPENAI_BASE_URL="https://openrouter.ai/api/v1"
@@ -56,4 +68,4 @@ export X4_COPILOT_API_KEY=...
 export X4_COPILOT_MODEL="provider/model"
 ```
 
-The key stays in environment variables. Do not commit it.
+The key stays in environment variables. Provider/profile commands never print it.

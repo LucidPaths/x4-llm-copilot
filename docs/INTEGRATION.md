@@ -29,7 +29,27 @@ Constraints:
 uv run x4-copilot classify "what are goods selling for in this system"
 uv run x4-copilot fetch-request "ship status"
 uv run x4-copilot answer "what's selling here" --payload examples/trade_payload.json
+uv run x4-copilot providers
 uv run pytest -q
+```
+
+## Ollama Cloud provider
+
+This repo includes a Python port of the World Engine provider-picker pattern:
+
+- `X4_COPILOT_PROVIDER=ollama` or `LLM_PROVIDER=ollama` selects Ollama.
+- `OLLAMA_API_KEY` / `X4_COPILOT_OLLAMA_API_KEY` supplies the key.
+- `OLLAMA_MODEL` / `X4_COPILOT_OLLAMA_MODEL` supplies the model.
+- `OLLAMA_BASE_URL` / `X4_COPILOT_OLLAMA_BASE_URL` can override the default `https://ollama.com/v1`.
+- `uv run x4-copilot providers` shows provider status without printing keys.
+- `uv run x4-copilot ollama-models` lists available models via `/v1/models`.
+
+Example:
+
+```bash
+export X4_COPILOT_PROVIDER="ollama"
+export OLLAMA_MODEL="glm-5.2"
+uv run x4-copilot answer "what's selling here" --payload examples/trade_payload.json
 ```
 
 ## Running the Windows pipe server
