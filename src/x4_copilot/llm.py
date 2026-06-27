@@ -5,7 +5,7 @@ import os
 import urllib.error
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from .advisor import GroundedAdvisor
@@ -119,7 +119,9 @@ class ProviderBackedAdvisor:
             with self._urlopen(req, timeout=self.config.timeout_s) as resp:  # noqa: S310 - user-configured endpoint
                 raw = json.loads(resp.read().decode("utf-8"))
             message = raw.get("choices", [{}])[0].get("message", {})
-            content = message.get("content") or message.get("reasoning")
+            content = message.get("content")
+            # Some providers expose hidden reasoning separately. Never surface that as user text;
+            # if no answer content exists, degrade to the deterministic grounded fallback.
         except (TimeoutError, urllib.error.URLError, json.JSONDecodeError, KeyError, IndexError, ValueError):
             return self.fallback.answer(question, payload)
         if not isinstance(content, str) or not content.strip():
@@ -137,7 +139,7 @@ class ProviderBackedAdvisor:
                         {
                             "question": question,
                             "intent": payload.intent,
-                            "ambient": payload.ambient.__dict__,
+                            "ambient": asdict(payload.ambient),
                             "data": payload.data,
                             "as_of": payload.as_of,
                         },

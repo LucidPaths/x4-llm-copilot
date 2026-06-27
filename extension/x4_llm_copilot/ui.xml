@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<addon name="x4_llm_copilot"
-       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-       xsi:noNamespaceSchemaLocation="../../ui/core/addon.xsd">
-  <environment type="detailmonitor">
-    <file name="ui/x4_llm_copilot.lua" />
-  </environment>
-</addon>

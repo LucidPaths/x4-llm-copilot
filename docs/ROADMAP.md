@@ -3,20 +3,21 @@
 ## v0.1 — executable adapter spine — done
 
 - Python package scaffold.
-- Deterministic intent router for the four initial fetch classes.
+- Tokenized deterministic intent router for the four initial fetch classes.
 - Validated telemetry payload model.
 - Grounded no-fabrication advisor fallback.
-- OpenAI-compatible model wrapper with deterministic fallback.
-- Windows named-pipe server transport compatible with SirNukes' client model.
-- X4 extension skeleton that declares the dependency and documents MD pipe calls.
+- Ollama Cloud and generic OpenAI-compatible provider wrappers with deterministic fallback.
+- Windows named-pipe server transport with session-level reconnect/recreate behavior for pipe breaks.
+- X4 extension packaging skeleton (`content.xml` + MD load-log cue only; no unvalidated Lua/UI hooks).
 - Tests and sample telemetry payloads.
 
-## v0.2 — live X4 telemetry reads
+## v0.2 — live X4 pipe and telemetry reads
 
 - Install `sn_mod_support_apis` in X4.
 - Copy or symlink `extension/x4_llm_copilot` into the X4 `extensions/` folder.
 - Run `x4-copilot serve-pipe --pipe x4_llm_copilot` with pywin32 installed.
-- Replace skeleton MD comments with actual Lua/MD reads for player sector/position, ship status, trade offers, sector objects, and faction relation snapshots.
+- Validate exact MD `Named_Pipes.*` call shapes in the live X4 debug log.
+- Add the first real read/write ping through X4, then telemetry reads for player sector/position, ship status, trade offers, sector objects, and faction relation snapshots.
 
 ## v0.3 — brain integration
 

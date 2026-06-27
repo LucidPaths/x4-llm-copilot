@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -14,13 +15,19 @@ class DuplexTransport(Protocol):
 
 @dataclass
 class NamedPipeServer:
-    """Windows named-pipe server compatible with SirNukes' X4 client."""
+    """Windows named-pipe server compatible with SirNukes' X4 client.
+
+    A pipe handle is a single session. After X4 save/reload/UI reload, close this handle and
+    call ``connect()`` again so the server creates a fresh named-pipe instance for X4 to attach.
+    """
 
     pipe_name: str = "x4_llm_copilot"
     buffer_size: int = 64 * 1024
 
     def __post_init__(self) -> None:
         self._handle = None
+        self._win32file = None
+        self._win32pipe = None
 
     @property
     def pipe_path(self) -> str:
@@ -34,7 +41,9 @@ class NamedPipeServer:
             import win32pipe  # type: ignore[import-not-found]
         except ImportError as exc:
             raise RuntimeError("pywin32 is required: uv pip install -e '.[winpipe]'") from exc
+        self.close()
         self._win32file = win32file
+        self._win32pipe = win32pipe
         self._handle = win32pipe.CreateNamedPipe(
             self.pipe_path,
             win32pipe.PIPE_ACCESS_DUPLEX,
@@ -48,13 +57,13 @@ class NamedPipeServer:
         win32pipe.ConnectNamedPipe(self._handle, None)
 
     def read(self) -> str:
-        if self._handle is None:
+        if self._handle is None or self._win32file is None:
             raise RuntimeError("pipe is not connected")
         _err, data = self._win32file.ReadFile(self._handle, self.buffer_size)
         return data.decode("utf-8")
 
     def write(self, message: str) -> None:
-        if self._handle is None:
+        if self._handle is None or self._win32file is None:
             raise RuntimeError("pipe is not connected")
         self._win32file.WriteFile(self._handle, message.encode("utf-8"))
 
@@ -62,6 +71,10 @@ class NamedPipeServer:
         if self._handle is None:
             return
         try:
-            self._win32file.CloseHandle(self._handle)
+            if self._win32pipe is not None:
+                with suppress(Exception):
+                    self._win32pipe.DisconnectNamedPipe(self._handle)
+            if self._win32file is not None:
+                self._win32file.CloseHandle(self._handle)
         finally:
             self._handle = None

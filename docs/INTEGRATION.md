@@ -4,7 +4,7 @@
 
 Install `sn_mod_support_apis` from `github.com/bvbohnen/x4-projects`.
 
-Verified API names relevant to this repo:
+Docs-derived API names relevant to the next live X4 slice:
 
 - `md.Named_Pipes.Write`
 - `md.Named_Pipes.Read`
@@ -14,6 +14,8 @@ Verified API names relevant to this repo:
 - `md.Pipe_Server_Host.Register_Module`
 - `md.Pipe_Server_Lib.Server_Reader`
 
+These names were read from SirNukes' public docs/source, not exercised in a running X4 process. Treat exact MD param shapes and Lua/UI loader hooks as **unverified until a live X4 debug-log smoke proves them**.
+
 Constraints:
 
 - Windows only.
@@ -22,6 +24,7 @@ Constraints:
 - Python pipe path is `\\.\pipe\x4_llm_copilot`.
 - MD pipe name is `x4_llm_copilot`.
 - Messages are strings; this repo uses JSON strings.
+- Pipe lifecycle matters: on save/reload/UI reload the server must close/destroy the broken handle, create a fresh pipe, and wait for X4 to reconnect. `serve_transport()` now does this at the transport-session level.
 
 ## Running local smoke checks
 
@@ -65,4 +68,4 @@ Then launch X4 with `sn_mod_support_apis` installed and Protected UI mode disabl
 
 The extension is in `extension/x4_llm_copilot/`.
 
-Copy that folder into X4's `extensions/` folder for live testing. It is intentionally a skeleton until live Lua/MD telemetry field names are observed.
+Current X4-side status is deliberately minimal: `content.xml` plus an MD load-log cue. It does **not** ship Lua/UI hooks or live `Named_Pipes.*` calls until those exact calls are validated against the installed game/debug log. Copy the folder into X4's `extensions/` folder only as a packaging starting point.

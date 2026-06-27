@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from .intent import classify
@@ -36,4 +36,4 @@ def parse_json_message(raw: str) -> dict[str, Any]:
 
 
 def encode_answer(question: str, payload: TelemetryPayload, answer: str) -> str:
-    return json.dumps({"type": "answer", "question": question, "intent": payload.intent, "answer": answer, "ambient": payload.ambient.__dict__}, ensure_ascii=False)
+    return json.dumps({"type": "answer", "question": question, "intent": payload.intent, "answer": answer, "ambient": asdict(payload.ambient)}, ensure_ascii=False)

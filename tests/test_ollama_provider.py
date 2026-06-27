@@ -115,7 +115,7 @@ def test_advisor_from_env_selects_ollama(monkeypatch):
     assert isinstance(advisor, OllamaAdvisor)
 
 
-def test_ollama_advisor_uses_chat_completions_and_reasoning_fallback():
+def test_ollama_advisor_uses_chat_completions_content_only():
     seen = {}
 
     def fake_urlopen(req, timeout):
@@ -123,7 +123,7 @@ def test_ollama_advisor_uses_chat_completions_and_reasoning_fallback():
         seen["timeout"] = timeout
         seen["headers"] = dict(req.header_items())
         seen["body"] = json.loads(req.data.decode("utf-8"))
-        return FakeResponse({"choices": [{"message": {"reasoning": "Buy hull parts, captain."}}]})
+        return FakeResponse({"choices": [{"message": {"content": "Buy hull parts, captain."}}]})
 
     advisor = OllamaAdvisor(
         ProviderConfig(provider="ollama", api_key="test-key", model="glm-5.2"),
@@ -135,6 +135,19 @@ def test_ollama_advisor_uses_chat_completions_and_reasoning_fallback():
     assert seen["body"]["model"] == "glm-5.2"
     assert "response_format" not in seen["body"]
     assert seen["headers"]["Authorization"] == "Bearer test-key"
+
+
+def test_reasoning_field_is_not_leaked_as_answer():
+    def fake_urlopen(req, timeout):
+        return FakeResponse({"choices": [{"message": {"reasoning": "hidden chain of thought"}}]})
+
+    advisor = OllamaAdvisor(
+        ProviderConfig(provider="ollama", api_key="test-key", model="glm-5.2"),
+        urlopen=fake_urlopen,
+    )
+    answer = advisor.answer("what's selling here", sample_payload())
+    assert "hidden chain" not in answer
+    assert "Best visible trade" in answer
 
 
 def test_list_ollama_models_accepts_id_or_name_and_sorts():

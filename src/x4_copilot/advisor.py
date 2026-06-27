@@ -25,7 +25,15 @@ class GroundedAdvisor:
         if not offers:
             sector = payload.ambient.sector or "this sector"
             return f"No trade offers visible in {sector}. Scanner data is empty, so I won't invent prices."
-        ranked = sorted(offers, key=lambda offer: (offer.spread is not None, offer.spread or -10**9, -(offer.dist_km or 10**9)), reverse=True)
+        ranked = sorted(
+            offers,
+            key=lambda offer: (
+                offer.spread is not None,
+                offer.spread if offer.spread is not None else -10**9,
+                -(offer.dist_km if offer.dist_km is not None else 10**9),
+            ),
+            reverse=True,
+        )
         best = ranked[0]
         price_bits = []
         if best.buy is not None:

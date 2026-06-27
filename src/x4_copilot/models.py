@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 Intent = Literal["trade_in_sector", "faction_state", "ship_status", "sector_objects", "unknown"]
+VALID_INTENTS = frozenset(get_args(Intent))
 
 
 class PayloadError(ValueError):
@@ -26,11 +27,10 @@ class AmbientContext:
             if not isinstance(pos, list | tuple) or len(pos) != 3:
                 raise PayloadError("ambient.pos must be a 3-item list")
             parsed_pos = (float(pos[0]), float(pos[1]), float(pos[2]))
-        credits = raw.get("credits")
         return cls(
             sector=_optional_str(raw.get("sector")),
             pos=parsed_pos,
-            credits=int(credits) if credits is not None else None,
+            credits=_optional_int(raw.get("credits"), "ambient.credits"),
             ship=_optional_str(raw.get("ship")),
             target=_optional_str(raw.get("target")),
         )
@@ -64,10 +64,10 @@ class TradeOffer:
             ware=_required_str(raw, "ware"),
             station=_required_str(raw, "station"),
             unit=str(raw.get("unit", "cr/u")),
-            buy=_optional_int(raw.get("buy")),
-            sell=_optional_int(raw.get("sell")),
-            dist_km=_optional_float(raw.get("dist_km")),
-            stock=_optional_int(raw.get("stock")),
+            buy=_optional_int(raw.get("buy"), "buy"),
+            sell=_optional_int(raw.get("sell"), "sell"),
+            dist_km=_optional_float(raw.get("dist_km"), "dist_km"),
+            stock=_optional_int(raw.get("stock"), "stock"),
         )
 
     @property
@@ -95,7 +95,7 @@ class TelemetryPayload:
         if not isinstance(data, list):
             raise PayloadError("data must be a list")
         intent = raw.get("intent", default_intent)
-        if intent not in {"trade_in_sector", "faction_state", "ship_status", "sector_objects", "unknown"}:
+        if intent not in VALID_INTENTS:
             intent = default_intent
         return cls(
             intent=intent,
@@ -128,13 +128,19 @@ def _optional_str(value: Any) -> str | None:
     return text or None
 
 
-def _optional_int(value: Any) -> int | None:
+def _optional_int(value: Any, label: str) -> int | None:
     if value is None:
         return None
-    return int(value)
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise PayloadError(f"{label} must be an integer") from exc
 
 
-def _optional_float(value: Any) -> float | None:
+def _optional_float(value: Any, label: str) -> float | None:
     if value is None:
         return None
-    return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise PayloadError(f"{label} must be a number") from exc

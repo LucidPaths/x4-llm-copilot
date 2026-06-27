@@ -7,15 +7,16 @@ This repo contains the executable adapter spine for the X4 LLM co-pilot idea in 
 1. **X4 adapter**: Windows-only extension + named-pipe protocol. It extracts scoped telemetry from live game state and accepts later safe actions.
 2. **Brain boundary**: provider-agnostic advisor layer. It can be a deterministic fallback, an Ollama Cloud wrapper, a generic OpenAI-compatible model endpoint, or a future Pantella/Mantella fork.
 
-The adapter protocol is intentionally independent from Mantella/Pantella. That keeps the hard X4 work reusable even if the brain base changes. The provider runtime was cannibalized from the World Engine pattern: environment profile selection, Ollama Cloud as a first-class profile, `/v1/models` model discovery, no key echoing, and `message.reasoning` fallback for Ollama/OpenAI-compatible quirks.
+The adapter protocol is intentionally independent from Mantella/Pantella. That keeps the hard X4 work reusable even if the brain base changes. The provider runtime was cannibalized from the World Engine pattern: environment profile selection, Ollama Cloud as a first-class profile, `/v1/models` model discovery, no key echoing, and provider-specific output quirks kept behind the provider wrapper.
 
-## Verified external seams
+## Source-grounded external seams
 
-- SirNukes Mod Support APIs named-pipe docs live at `bvbohnen/x4-projects/extensions/sn_mod_support_apis/documentation/Named_Pipes_API.md`.
-- X4 is the named-pipe client; the external process creates `\\.\pipe\<pipe_name>`.
-- X4 MD calls use bare pipe names, e.g. `x4_llm_copilot`.
+- SirNukes Mod Support APIs named-pipe docs/source live at `bvbohnen/x4-projects/extensions/sn_mod_support_apis/`.
+- Docs/source indicate X4 is the named-pipe client; the external process creates `\\.\pipe\<pipe_name>`.
+- Docs/source indicate X4 MD calls use bare pipe names, e.g. `x4_llm_copilot`.
 - Protected UI mode must be disabled or the pipe DLL will not load/connect.
 - Pipe server host modules are Python functions with `main(args)` and can be registered with `md.Pipe_Server_Host.Register_Module`.
+- Exact MD parameter shapes and any Lua/UI loader hooks remain live-game validation tasks; this repo no longer labels them verified until a running X4 debug-log smoke proves them.
 - Mantella is AGPL-3.0; Pantella reports GPL-3.0 but is a Mantella fork, so license provenance needs review before copying code.
 
 ## Current implementation

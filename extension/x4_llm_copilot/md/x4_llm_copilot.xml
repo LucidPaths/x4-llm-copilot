@@ -8,26 +8,8 @@
         <event_game_started />
       </conditions>
       <actions>
-        <debug_text text="'X4 LLM Copilot loaded. Pipe name: x4_llm_copilot'" filter="general" />
+        <debug_text text="'X4 LLM Copilot skeleton loaded. Live pipe calls are intentionally deferred until validated in-game.'" filter="general" />
       </actions>
-      <cues>
-        <cue name="PipeCheck" instantiate="true">
-          <conditions>
-            <event_cue_signalled cue="md.Named_Pipes.Reloaded" />
-          </conditions>
-          <actions>
-            <signal_cue_instantly cue="md.Named_Pipes.Check" param="table[$pipe='x4_llm_copilot', $cue=PipeCheckCallback, $time=5s]" />
-          </actions>
-        </cue>
-        <cue name="PipeCheckCallback" instantiate="true">
-          <conditions>
-            <event_cue_signalled />
-          </conditions>
-          <actions>
-            <debug_text text="'X4 LLM Copilot pipe check: %s'.[event.param]" filter="general" />
-          </actions>
-        </cue>
-      </cues>
     </cue>
   </cues>
 </mdscript>
