@@ -70,6 +70,9 @@ def test_chat_bridge_routes_chat_request_by_correlation_id() -> None:
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-1", "text": "what's selling near me?"}))
 
+    deadline = __import__("time").monotonic() + 1.0
+    while not transport.writes and __import__("time").monotonic() < deadline:
+        __import__("time").sleep(0.01)
     fetch = json.loads(transport.writes[0])
     assert fetch["type"] == "fetch"
     assert fetch["intent"] == "trade_in_sector"

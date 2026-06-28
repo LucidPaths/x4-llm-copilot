@@ -131,6 +131,9 @@
         <do_if value="event.param != 'SUCCESS'">
           <signal_cue_instantly cue="md.Chat_Window_API.Print" param="'Hermes chat error: pipe write failed: %s'.[event.param]" />
         </do_if>
+        <do_else>
+          <signal_cue_instantly cue="Start_Request_Read" />
+        </do_else>
       </actions>
     </cue>
 

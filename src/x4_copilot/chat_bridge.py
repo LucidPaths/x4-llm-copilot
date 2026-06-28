@@ -7,6 +7,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 from .advisor import GroundedAdvisor
@@ -34,6 +35,7 @@ class ChatBridgeConfig:
     fetch_timeout_s: float = 8.0
     chat_timeout_s: float = 90.0
     raw_log_path: str = str(DEFAULT_RAW_TELEMETRY_LOG)
+    bridge_log_path: str = "var/chat_bridge.jsonl"
     hermes_command: str | None = None
 
 
@@ -103,6 +105,7 @@ class ChatPipeBridge:
         self._pending_fetch: queue.Queue[dict[str, Any]] | None = None
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._log_lock = threading.Lock()
 
     def serve_forever(self) -> None:
         while not self._stop.is_set():
@@ -135,6 +138,7 @@ class ChatPipeBridge:
             self._write_json({"type": "protocol_error", "error": str(exc)})
             return
         msg_type = message.get("type")
+        self._log_event("message_received", type=msg_type, id=message.get("id"), intent=message.get("intent"), text=message.get("text"))
         if msg_type == "ping":
             self._write_json({"type": "pong"})
             return
@@ -157,15 +161,19 @@ class ChatPipeBridge:
 
     def _handle_chat_request(self, request_id: str, question: str) -> None:
         try:
+            self._log_event("chat_request_start", id=request_id, question=question)
             payload = self.fetch_for_question(question)
             answer = self._responder.answer(question, payload)
+            self._log_event("chat_response_ready", id=request_id, intent=payload.intent, text=answer)
             self._write_json({"type": "chat_response", "id": request_id, "text": answer})
         except Exception as exc:  # noqa: BLE001 - surfaced to cockpit as clean error state
+            self._log_event("chat_response_error", id=request_id, error=str(exc))
             self._write_json({"type": "chat_response", "id": request_id, "error": str(exc), "text": f"Hermes error: {exc}"})
 
     def fetch_for_question(self, question: str) -> TelemetryPayload:
         routed = classify(question)
         if routed.intent == "unknown":
+            self._log_event("fetch_bypassed_unknown_intent", question=question)
             return TelemetryPayload(
                 intent="unknown",
                 ambient=AmbientContext(),
@@ -176,6 +184,7 @@ class ChatPipeBridge:
         if routed.intent == "trade_in_sector":
             args["scope"] = "radar_range"
         request = FetchRequest(intent=routed.intent, args=args, question=question)
+        self._log_event("fetch_request", intent=request.intent, question=request.question, args=request.args)
         return self.fetch_live(request)
 
     def fetch_live(self, request: FetchRequest) -> TelemetryPayload:
@@ -202,6 +211,14 @@ class ChatPipeBridge:
         return TelemetryPayload(intent="ambient_context", ambient=payload.ambient, data=payload.data, as_of="fresh live pipe response")
 
     def _write_json(self, message: dict[str, Any]) -> None:
+        self._log_event(
+            "message_write",
+            type=message.get("type"),
+            id=message.get("id"),
+            intent=message.get("intent"),
+            error=message.get("error"),
+            text=message.get("text"),
+        )
         self._write(json.dumps(message, ensure_ascii=False))
 
     def _write(self, message: str) -> None:
@@ -213,6 +230,15 @@ class ChatPipeBridge:
         for thread in list(self._threads):
             remaining = max(0.0, deadline - time.monotonic())
             thread.join(remaining)
+
+    def _log_event(self, event: str, **fields: Any) -> None:
+        record = {"ts": time.time(), "event": event, **{key: value for key, value in fields.items() if value is not None}}
+        line = json.dumps(record, ensure_ascii=False)
+        path = Path(self.config.bridge_log_path)
+        with self._log_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(line + "\n")
 
 
 def _required_text(message: dict[str, Any], key: str) -> str:
