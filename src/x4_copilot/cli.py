@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     p_tool.add_argument("--raw-log", type=Path, default=None)
     p_tool.add_argument("--pipe", default="x4_llm_copilot")
     p_tool.add_argument("--timeout", type=float, default=8.0)
-    p_tool.add_argument("--scope", choices=["docked_station", "radar_range"], default="docked_station", help="trade tool scope; live-pipe currently supports docked_station only")
+    p_tool.add_argument("--scope", choices=["docked_station", "radar_range"], default="docked_station", help="trade tool scope; live-pipe supports docked_station and bounded radar_range")
 
     sub.add_parser("mcp-config", help="print a Hermes stdio MCP config snippet for this repo")
     sub.add_parser("providers", help="list configured provider profiles without exposing keys")

@@ -3,9 +3,15 @@ local C = ffi.C
 
 ffi.cdef[[
     typedef uint64_t UniverseID;
+    typedef struct {
+        float x;
+        float y;
+        float z;
+    } Coord3D;
     UniverseID GetContextByClass(UniverseID componentid, const char* classname, bool includeself);
     UniverseID GetPlayerID(void);
     UniverseID GetPlayerOccupiedShipID(void);
+    Coord3D GetObjectPositionInSector(UniverseID componentid);
 ]]
 
 local L = {}
@@ -73,7 +79,7 @@ local function json_value(value, depth)
         return tostring(value)
     end
     if value_type == "table" then
-        if depth >= 3 then
+        if depth >= 5 then
             return json_string(tostring(value))
         end
         local parts = {}
@@ -132,7 +138,69 @@ local function emit_ambient(trigger)
     AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
 end
 
-local function emit_trade(trigger)
+local STATION_CAP = 32
+local OFFERS_PER_STATION_CAP = 20
+local TOTAL_OFFER_CAP = 200
+
+local function request_scope(request_json)
+    request_json = tostring(request_json or "")
+    local scope = string.match(request_json, '"scope"%s*:%s*"([^"]+)"')
+    if scope ~= nil then
+        return scope
+    end
+    if string.match(request_json, '"radar_only"%s*:%s*true') then
+        return "radar_range"
+    end
+    return "docked_station"
+end
+
+local function component_position(component64)
+    local ok, pos = pcall(function()
+        return C.GetObjectPositionInSector(component64)
+    end)
+    if ok and pos ~= nil then
+        return { x = tonumber(pos.x), y = tonumber(pos.y), z = tonumber(pos.z), source = "C.GetObjectPositionInSector" }
+    end
+    ok, pos = pcall(function()
+        return GetComponentData(component64, "position")
+    end)
+    if ok and type(pos) == "table" then
+        return { x = tonumber(pos.x), y = tonumber(pos.y), z = tonumber(pos.z), source = "GetComponentData(position)" }
+    end
+    return nil
+end
+
+local function distance_between(a, b)
+    if a == nil or b == nil or a.x == nil or a.y == nil or a.z == nil or b.x == nil or b.y == nil or b.z == nil then
+        return nil
+    end
+    local dx = a.x - b.x
+    local dy = a.y - b.y
+    local dz = a.z - b.z
+    return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+end
+
+local function limited_offers(offers, station64, station_name, sector64, distance_m, distance_km)
+    local result = {}
+    local count = 0
+    for _, offer in ipairs(offers or {}) do
+        if count >= OFFERS_PER_STATION_CAP then
+            break
+        end
+        count = count + 1
+        if type(offer) == "table" then
+            offer.station = offer.station or tostring(station64)
+            offer.stationname = offer.stationname or station_name
+            offer.stationsectorid = offer.stationsectorid or tostring(sector64)
+            offer.distance_m = distance_m
+            offer.distance_km = distance_km
+        end
+        table.insert(result, offer)
+    end
+    return result, count
+end
+
+local function emit_trade_docked(trigger)
     trigger = trigger or "unspecified"
     local ok, payload = pcall(function()
         local player_id = C.GetPlayerID()
@@ -190,6 +258,117 @@ local function emit_trade(trigger)
     AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
 end
 
+local function emit_trade_radar(trigger)
+    trigger = trigger or "unspecified"
+    local ok, payload = pcall(function()
+        local player_id = C.GetPlayerID()
+        local ship_id = C.GetPlayerOccupiedShipID()
+        local ship64 = ConvertStringTo64Bit(tostring(ship_id))
+        local ship_name, sector, sector_id, radar_range_m = GetComponentData(ship64, "name", "sector", "sectorid", "maxradarrange")
+        local player_money = GetPlayerMoney()
+        local sector64 = ConvertStringTo64Bit(tostring(sector_id or 0))
+        local ship_pos = component_position(ship64)
+        local stationtable = {}
+        if sector64 ~= 0 then
+            stationtable = GetContainedStations(sector64, true) or {}
+        end
+
+        local stations = {}
+        local scanned = 0
+        local included = 0
+        local total_offers = 0
+        for _, station in ipairs(stationtable) do
+            if included >= STATION_CAP or total_offers >= TOTAL_OFFER_CAP then
+                break
+            end
+            scanned = scanned + 1
+            local station64 = ConvertStringTo64Bit(tostring(station))
+            local station_name, isdock, canhavetradeoffers, isradarvisible, factionname, owner, idcode = GetComponentData(station64, "name", "isdock", "canhavetradeoffers", "isradarvisible", "factionname", "owner", "idcode")
+            if isdock and canhavetradeoffers then
+                local station_pos = component_position(station64)
+                local distance_m = distance_between(ship_pos, station_pos)
+                local distance_km = distance_m and (distance_m / 1000) or nil
+                local in_range = (isradarvisible == true) or (distance_m ~= nil and tonumber(radar_range_m) ~= nil and distance_m <= tonumber(radar_range_m))
+                if in_range then
+                    local offers = GetTradeList(ConvertStringToLuaID(tostring(station64)), ConvertStringToLuaID(tostring(ship_id))) or {}
+                    local capped_offers, offer_count = limited_offers(offers, station64, station_name, sector64, distance_m, distance_km)
+                    if #capped_offers > 0 and total_offers < TOTAL_OFFER_CAP then
+                        local remaining = TOTAL_OFFER_CAP - total_offers
+                        if #capped_offers > remaining then
+                            local trimmed = {}
+                            for i = 1, remaining do
+                                table.insert(trimmed, capped_offers[i])
+                            end
+                            capped_offers = trimmed
+                        end
+                        total_offers = total_offers + #capped_offers
+                        included = included + 1
+                        table.insert(stations, {
+                            id = tostring(station64),
+                            name = station_name,
+                            idcode = idcode,
+                            factionname = factionname,
+                            owner = owner,
+                            sectorid = tostring(sector64),
+                            distance_m = distance_m,
+                            distance_km = distance_km,
+                            distance_source = station_pos and station_pos.source or nil,
+                            isradarvisible = isradarvisible,
+                            offers_raw = capped_offers,
+                            offer_count = offer_count,
+                            offer_cap = OFFERS_PER_STATION_CAP
+                        })
+                    end
+                end
+            end
+        end
+
+        return "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"trade_in_sector",'
+            .. '"source":"x4_lua_live_pipe",'
+            .. '"schema":"trade_offers_radar_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"player_id":' .. json_string(tostring(player_id)) .. ','
+            .. '"ship_id":' .. json_string(tostring(ship_id)) .. ','
+            .. '"ship_name":' .. json_raw_string_or_null(ship_name) .. ','
+            .. '"sector_raw":' .. json_raw_string_or_null(sector) .. ','
+            .. '"sector_id":' .. json_raw_string_or_null(sector64 and tostring(sector64) or nil) .. ','
+            .. '"player_money":' .. json_number_or_null(player_money) .. ','
+            .. '"radar_range_m":' .. json_number_or_null(radar_range_m) .. ','
+            .. '"distance_unit":"meters; distance_km derived by /1000",'
+            .. '"station_cap":' .. tostring(STATION_CAP) .. ','
+            .. '"offer_cap":' .. tostring(TOTAL_OFFER_CAP) .. ','
+            .. '"offers_per_station_cap":' .. tostring(OFFERS_PER_STATION_CAP) .. ','
+            .. '"station_count":' .. tostring(#stations) .. ','
+            .. '"station_scan_count":' .. tostring(scanned) .. ','
+            .. '"stations_raw":' .. json_value(stations)
+            .. "}"
+    end)
+
+    if not ok then
+        payload = "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"trade_in_sector",'
+            .. '"source":"x4_lua_live_pipe",'
+            .. '"schema":"trade_offers_radar_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"error":' .. json_string(payload)
+            .. "}"
+    end
+
+    DebugError("X4 LLM Copilot Lua radar trade payload: " .. payload)
+    AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
+end
+
+local function emit_trade(trigger, scope)
+    if scope == "radar_range" then
+        emit_trade_radar(trigger)
+    else
+        emit_trade_docked(trigger)
+    end
+end
+
 local function request_intent(request_json)
     request_json = tostring(request_json or "")
     local intent = string.match(request_json, '"intent"%s*:%s*"([^"]+)"')
@@ -201,7 +380,7 @@ function L.Init()
     RegisterEvent("x4LLMCopilotFetchAmbient", function(_, request_json)
         local intent = request_intent(request_json)
         if intent == "trade_in_sector" then
-            emit_trade("fetch_response")
+            emit_trade("fetch_response", request_scope(request_json))
         else
             emit_ambient("fetch_response")
         end

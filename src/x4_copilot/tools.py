@@ -152,8 +152,8 @@ class LivePipeTelemetryFetcher:
             requested_scope = request.args.get("scope")
             if requested_scope is None and "radar_only" in request.args:
                 requested_scope = "radar_range" if request.args.get("radar_only") else "docked_station"
-            if requested_scope not in {None, "docked_station"}:
-                raise PayloadError("live pipe trade currently supports scope='docked_station' only; radar_range is not implemented yet")
+            if requested_scope not in {None, "docked_station", "radar_range"}:
+                raise PayloadError(f"unsupported live pipe trade scope: {requested_scope}")
         self._ensure_ready()
         self._write(request.to_json(), phase="send fetch request")
         raw = self._read_raw_fetch_response()
@@ -298,11 +298,29 @@ def telemetry_payload_from_raw_trade(raw: dict[str, Any]) -> TelemetryPayload:
         raise PayloadError("raw trade telemetry type must be telemetry_raw")
     if raw.get("intent") != "trade_in_sector":
         raise PayloadError("raw trade telemetry intent must be trade_in_sector")
-    if raw.get("source") != "x4_lua_live":
-        raise PayloadError("raw trade telemetry source must be x4_lua_live")
-    if raw.get("schema") != "trade_offers_probe_v1":
-        raise PayloadError("raw trade telemetry schema must be trade_offers_probe_v1")
+    if raw.get("source") not in {"x4_lua_live", "x4_lua_live_pipe"}:
+        raise PayloadError("raw trade telemetry source must be x4_lua_live or x4_lua_live_pipe")
+    schema = raw.get("schema")
+    if schema == "trade_offers_probe_v1":
+        data = _normalize_docked_trade_payload(raw)
+    elif schema == "trade_offers_radar_v1":
+        data = _normalize_radar_trade_payload(raw)
+    else:
+        raise PayloadError("raw trade telemetry schema must be trade_offers_probe_v1 or trade_offers_radar_v1")
 
+    return TelemetryPayload(
+        intent="trade_in_sector",
+        ambient=AmbientContext(
+            sector=_optional_raw_str(raw.get("sector_raw")),
+            ship=_optional_raw_str(raw.get("ship_name")),
+            credits=_optional_raw_int(raw.get("player_money"), "player_money"),
+        ),
+        data=data,
+        as_of="fresh live raw Lua trade probe",
+    )
+
+
+def _normalize_docked_trade_payload(raw: dict[str, Any]) -> list[dict[str, Any]]:
     offers_raw = raw.get("offers_raw")
     nontrade_raw = raw.get("nontrade_offers_raw")
     data: list[dict[str, Any]] = []
@@ -324,24 +342,50 @@ def telemetry_payload_from_raw_trade(raw: dict[str, Any]) -> TelemetryPayload:
                 "nontrade_offers_raw": nontrade_raw if nontrade_raw is not None else [],
             }
         )
+    return data
 
-    return TelemetryPayload(
-        intent="trade_in_sector",
-        ambient=AmbientContext(
-            sector=_optional_raw_str(raw.get("sector_raw")),
-            ship=_optional_raw_str(raw.get("ship_name")),
-            credits=_optional_raw_int(raw.get("player_money"), "player_money"),
-        ),
-        data=data,
-        as_of="fresh live raw Lua trade probe",
-    )
+
+def _normalize_radar_trade_payload(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    data: list[dict[str, Any]] = []
+    stations_raw = raw.get("stations_raw")
+    if isinstance(stations_raw, list):
+        for station in stations_raw:
+            if not isinstance(station, dict):
+                data.append({"kind": "trade_station_raw", "station_raw": station})
+                continue
+            offers = station.get("offers_raw")
+            if isinstance(offers, list):
+                for offer in offers:
+                    normalized = _normalize_trade_offer(offer)
+                    normalized["scope"] = "radar_range"
+                    normalized["station_distance_m"] = _optional_raw_number(station.get("distance_m"), "distance_m")
+                    normalized["station_distance_km"] = _optional_raw_number(station.get("distance_km"), "distance_km")
+                    normalized["distance_unit"] = "meters_from_player_ship_position; km derived by /1000"
+                    normalized["station_raw"] = station
+                    data.append(normalized)
+            elif offers is not None:
+                data.append({"kind": "trade_offers_raw", "station_raw": station, "offers_raw": offers})
+    elif stations_raw is not None:
+        data.append({"kind": "trade_stations_raw", "stations_raw": stations_raw})
+    if not data:
+        data.append(
+            {
+                "kind": "trade_radar_metadata",
+                "scope": "radar_range",
+                "stations_raw": stations_raw if stations_raw is not None else [],
+                "station_count": _optional_raw_int(raw.get("station_count"), "station_count"),
+                "station_cap": _optional_raw_int(raw.get("station_cap"), "station_cap"),
+                "offer_cap": _optional_raw_int(raw.get("offer_cap"), "offer_cap"),
+            }
+        )
+    return data
 
 
 def _normalize_trade_offer(offer: Any) -> dict[str, Any]:
     if not isinstance(offer, dict):
         return {"kind": "trade_offer_raw", "offer_raw": offer}
     side = "buy" if offer.get("isbuyoffer") else "sell" if offer.get("isselloffer") else "unknown"
-    return {
+    normalized = {
         "kind": "trade_offer",
         "id": _optional_raw_str(offer.get("id")),
         "ware": _optional_raw_str(offer.get("ware")),
@@ -361,6 +405,11 @@ def _normalize_trade_offer(offer: Any) -> dict[str, Any]:
         "is_mission": bool(offer.get("ismissionoffer")),
         "raw": offer,
     }
+    if "distance_m" in offer:
+        normalized["station_distance_m"] = _optional_raw_number(offer.get("distance_m"), "distance_m")
+    if "distance_km" in offer:
+        normalized["station_distance_km"] = _optional_raw_number(offer.get("distance_km"), "distance_km")
+    return normalized
 
 
 def _optional_raw_str(value: Any) -> str | None:

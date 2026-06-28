@@ -2,7 +2,7 @@ import json
 import threading
 import time
 
-from x4_copilot.models import AmbientContext, PayloadError, TelemetryPayload
+from x4_copilot.models import AmbientContext, TelemetryPayload
 from x4_copilot.protocol import FetchRequest
 from x4_copilot.tools import (
     FetchProvenance,
@@ -435,36 +435,61 @@ def test_live_pipe_fetcher_routes_trade_request_to_raw_trade_payload(tmp_path):
     assert any('"scope": "docked_station"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
 
 
-def test_live_pipe_fetcher_rejects_unimplemented_radar_range_trade(tmp_path):
-    class FakeTransport:
+def test_live_pipe_fetcher_accepts_radar_range_trade_schema(tmp_path):
+    class FakeRadarTransport:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.messages = [
+                json.dumps(
+                    {
+                        "type": "telemetry_raw",
+                        "intent": "trade_in_sector",
+                        "source": "x4_lua_live",
+                        "schema": "trade_offers_radar_v1",
+                        "trigger": "fetch_response",
+                        "sector_raw": "Windfall I Union Summit",
+                        "ship_name": "Raleigh (Container)",
+                        "player_money": 39392,
+                        "station_cap": 32,
+                        "offer_cap": 200,
+                        "stations_raw": [
+                            {
+                                "id": "12345",
+                                "name": "VIG Ice Refinery I",
+                                "sectorid": "99",
+                                "distance_m": 3210,
+                                "distance_km": 3.21,
+                                "offers_raw": [
+                                    {"ware": "ice", "amount": 7, "price": 30, "station": "12345", "stationname": "VIG Ice Refinery I", "distance_m": 3210, "distance_km": 3.21}
+                                ],
+                            }
+                        ],
+                    }
+                )
+            ]
+
         def connect(self) -> None:
             pass
 
         def read(self) -> str:
-            raise AssertionError("radar_range should fail before transport read")
+            return self.messages.pop(0)
 
         def write(self, message: str) -> None:
-            raise AssertionError(f"radar_range should fail before write: {message}")
+            self.writes.append(message)
 
         def close(self) -> None:
             pass
 
-    fetcher = LivePipeTelemetryFetcher(transport=FakeTransport(), raw_log_path=tmp_path / "raw.jsonl")
-    try:
-        fetcher(FetchRequest(intent="trade_in_sector", args={"scope": "radar_range"}))
-    except PayloadError as exc:
-        assert "docked_station" in str(exc)
-        assert "radar_range" in str(exc)
-    else:
-        raise AssertionError("radar_range live trade must fail closed until implemented")
+    fetcher = LivePipeTelemetryFetcher(transport=FakeRadarTransport(), raw_log_path=tmp_path / "raw.jsonl")
+    payload = fetcher(FetchRequest(intent="trade_in_sector", args={"scope": "radar_range"}))
 
-    try:
-        fetcher(FetchRequest(intent="trade_in_sector", args={"radar_only": True}))
-    except PayloadError as exc:
-        assert "docked_station" in str(exc)
-        assert "radar_range" in str(exc)
-    else:
-        raise AssertionError("legacy radar_only=True must fail closed until implemented")
+    assert payload.intent == "trade_in_sector"
+    assert payload.data[0]["scope"] == "radar_range"
+    assert payload.data[0]["station"] == "VIG Ice Refinery I"
+    assert payload.data[0]["station_distance_m"] == 3210
+    assert payload.data[0]["station_distance_km"] == 3.21
+    assert payload.data[0]["raw"]["ware"] == "ice"
+    assert any('"scope": "radar_range"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
 
 
 def test_live_pipe_fetcher_timeout_raises_instead_of_replaying_log(tmp_path):

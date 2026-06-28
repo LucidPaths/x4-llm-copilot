@@ -31,7 +31,7 @@ def build_mcp_server():
         radar_only: bool | None = None,
         sector: str | None = None,
     ) -> dict[str, Any]:
-        """Return structured trade offers. Live pipe currently supports scope='docked_station'; radar_range is future work."""
+        """Return structured trade offers. Live pipe supports scope='docked_station' and bounded scope='radar_range'."""
         return surface.fetch_trade_offers(scope=scope, radar_only=radar_only, sector=sector)
 
     @mcp.tool()
