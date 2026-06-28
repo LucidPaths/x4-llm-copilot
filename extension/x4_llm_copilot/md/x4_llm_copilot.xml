@@ -3,6 +3,14 @@
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:noNamespaceSchemaLocation="md.xsd">
   <cues>
+    <cue name="Globals">
+      <actions>
+        <do_if value="not Globals.$Request_Read_Continuous_Active?">
+          <set_value name="Globals.$Request_Read_Continuous_Active" exact="false" />
+        </do_if>
+      </actions>
+    </cue>
+
     <cue name="Root" instantiate="true">
       <conditions>
         <event_game_started />

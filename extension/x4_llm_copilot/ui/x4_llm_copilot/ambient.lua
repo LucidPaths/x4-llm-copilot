@@ -826,7 +826,7 @@ local function emit_chat_request(text)
     local id = "x4chat-" .. tostring(chat_sequence)
     pending_chat[id] = true
     emit_chat_print("You [" .. id .. "]: " .. text)
-    emit_chat_print("Hermes [" .. id .. "]: thinking...")
+    emit_chat_print("Hermes [" .. id .. "]: queued...")
     AddUITriggeredEvent("X4LLMCopilot", "ChatPending", id)
     AddUITriggeredEvent("X4LLMCopilot", "ChatRequest", json_value({ type = "chat_request", id = id, text = text }))
 end
