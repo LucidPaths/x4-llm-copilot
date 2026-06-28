@@ -53,12 +53,12 @@
 - Current chat routing: exact `/hermes ambient_context` returns capability help without a telemetry fetch; scoped questions fetch their matching live telemetry intent; unscoped natural chat performs a cheap live `ambient_context` fetch so answers can reference verified current state. Outbound chat text normalizes display-risk punctuation for X4 while preserving UTF-8 proper nouns/accented letters at the pipe boundary.
 - Ambient/unprompted Hermes display is a derivative of this v0.3 UI path: once the cockpit display can render prompted responses, it can also render bounded ambient notices.
 
-## v0.4 — save-scoped cockpit session memory
+## v0.4 — save-scoped cockpit session memory — done
 
-- Treat X4 cockpit memory as mod-owned product state, not default Hermes app memory. Session state must be scoped by save file/save fingerprint and stored under an X4 Copilot app state root or app-owned isolated `HERMES_HOME`, never the operator's normal Hermes CLI/TUI/gateway session store.
-- Add a save-scope resolver: prefer a verified explicit X4 save id if a live API is found; otherwise use configured save binding; fall back only to a labelled derived universe fingerprint and fail closed when ambiguous.
-- Add per-save transcript, compact summary, structured facts, and reset/export/status controls. Conversation memory is for references and intent; fresh live telemetry remains the only source of current game state.
-- Add isolation tests proving Save A and Save B cannot see each other's cockpit transcript/summary, fresh telemetry overrides remembered facts, and default Hermes home is untouched.
+- Implemented X4 cockpit memory as mod-owned product state, not default Hermes app memory. Session state is scoped by save id/configured binding/derived save fingerprint and stored under an X4 Copilot app state root plus app-owned isolated `HERMES_HOME`, never the operator's normal Hermes CLI/TUI/gateway session store.
+- Added a save-scope resolver: explicit `chat_request` save fields first; configured `--save-scope` / `X4_COPILOT_SAVE_SCOPE` / `/hermes save <name>` next; labelled derived universe fingerprint from live telemetry as fallback.
+- Added per-save transcript, compact summary, structured facts, and reset/export/status controls. Conversation memory is for references and intent; fresh live telemetry remains the only source of current game state.
+- Added isolation tests proving Save A and Save B cannot see each other's cockpit transcript/summary, fresh telemetry reaches the current turn, missing save identity can fail closed, and default Hermes home is untouched.
 - Architecture contract: `docs/SAVE_SCOPED_COCKPIT_SESSIONS.md`.
 
 ## v0.5 — brain integration

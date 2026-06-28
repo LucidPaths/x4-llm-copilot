@@ -1,6 +1,6 @@
 # Save-scoped cockpit sessions
 
-Status: design decision / implementation target. The current live bridge is verified for text-in/text-out cockpit chat with fresh telemetry, but the real persistent-session layer described here is not implemented yet.
+Status: implemented for the cockpit bridge's local session layer. The bridge now resolves a save scope, stores per-save transcripts/summaries/facts, passes save-scoped context into Hermes, and runs Hermes under an app-owned isolated `HERMES_HOME`. A verified explicit X4 save-id API is still future work; until then, the bridge supports explicit `save_scope_id` fields, `--save-scope`, `/hermes save <name>`, and labelled derived scopes from live telemetry.
 
 ## Problem
 
@@ -16,9 +16,9 @@ The session boundary is therefore **the X4 save**, not the Hermes app.
 - Use conversation memory for references and intent only. Fresh live telemetry is the only source of current game state.
 - Keep the v0 surface read-only: text answers, no waypoints, no target marks, no autopilot/combat automation.
 
-## Architecture decision
+## Implemented architecture
 
-Use an **X4-owned session store** keyed by a save scope, with Hermes used as the reasoning engine for each turn.
+The bridge uses an **X4-owned session store** keyed by a save scope, with Hermes used as the reasoning engine for each turn.
 
 ```text
 X4 save / running game
@@ -31,9 +31,15 @@ X4 save / running game
 
 This deliberately avoids relying on the operator's default Hermes `state.db` or default memory files as the source of truth for cockpit continuity.
 
+Code:
+
+- `src/x4_copilot/cockpit_session.py` — `SaveScopeResolver`, `CockpitSessionStore`, default app-state root.
+- `src/x4_copilot/chat_bridge.py` — resolves scope per turn, injects session context into `HermesAgentResponder`, appends completed turns, implements session/reset/export/save commands.
+- `tests/test_chat_bridge.py` — isolation and no-default-Hermes-home regression coverage.
+
 ## Where state lives
 
-Preferred local state root:
+Default local state root:
 
 ```text
 %LOCALAPPDATA%/x4-llm-copilot/
@@ -49,36 +55,43 @@ Preferred local state root:
     .env        # optional, ignored; no committed secrets
 ```
 
-Repo-local `var/` remains for development logs and smoke evidence. Runtime save memory should live under `%LOCALAPPDATA%/x4-llm-copilot`, not inside the git checkout and not inside the default Hermes home.
+Override with:
 
-If Hermes persistent sessions are used directly, run them under an isolated `HERMES_HOME` rooted in this app state directory. A dedicated Hermes profile is only acceptable as an explicit advanced configuration, and it must still be visibly labelled as X4 Copilot state. The hard requirement is isolation from the user's normal Hermes CLI/TUI/gateway sessions.
+```bash
+X4_COPILOT_STATE_HOME=C:/path/to/state
+# or
+uv run --extra winpipe x4-copilot serve-chat --state-root C:/path/to/state
+```
+
+Repo-local `var/` remains for development logs and smoke evidence. Runtime save memory lives under the app state root, not inside the git checkout and not inside the default Hermes home.
+
+If Hermes persistent sessions are used directly, the bridge runs them under `HERMES_HOME=<state-root>/hermes-home` and names them `x4-save-<save_scope_id>`. The hard requirement is isolation from the user's normal Hermes CLI/TUI/gateway sessions.
 
 ## Save-scope identity
 
 The bridge needs a stable `save_scope_id` before it can choose the right session. Resolution order:
 
-1. **Verified explicit save id** from a live X4/Lua/MD API, if one is found and smoke-tested.
-2. **User-selected save slot/profile hint** supplied through bridge config or CLI when explicit save identity is unavailable.
-3. **Derived universe fingerprint** as a fallback, composed from stable live facts such as player id, player name if available, game start time, known headquarters/player-owned object ids, and current save/load metadata if exposed.
+1. **Explicit save id** in the `chat_request` envelope: `save_scope_id`, `save_id`, `save_name`, `save`, or the same keys under `meta`.
+2. **Configured save binding** from `--save-scope`, `X4_COPILOT_SAVE_SCOPE`, or the in-cockpit `/hermes save <name>` command.
+3. **Derived universe fingerprint** from live telemetry fields currently available to the bridge (`sector`, `ship`, and whether credits are present).
 
-The fallback fingerprint must be labelled `confidence:"derived"` and should be treated as provisional. Do not silently merge histories when the resolver is uncertain; ask the cockpit user to select or confirm a save scope.
+The fallback fingerprint is labelled `confidence:"derived"` and is provisional. Once a verified X4 save-id API is found, it should become the primary source and the derived fallback should remain only for development or emergency continuity.
 
-Recommended envelope:
+Scope envelope:
 
 ```json
 {
-  "save_scope_id": "x4save_<stable-or-derived-hash>",
+  "save_scope_id": "save-alpha",
   "confidence": "explicit|configured|derived",
   "evidence": {
-    "source": "x4_lua_live_pipe",
-    "fields": ["..."]
+    "source": "chat_request|bridge_config|chat_command|derived_from_live_telemetry"
   }
 }
 ```
 
 ## Turn model
 
-Every `/hermes` cockpit turn should build a prompt from three separate layers:
+Every `/hermes` cockpit turn builds a prompt from three separate layers:
 
 1. **Conversation context**: recent turns and a compact save-scoped summary from the X4 session store.
 2. **Fresh telemetry**: current live pipe payloads fetched for this turn.
@@ -86,43 +99,16 @@ Every `/hermes` cockpit turn should build a prompt from three separate layers:
 
 Fresh telemetry wins over remembered state. If the transcript says the player had 39,482 credits earlier but the latest live snapshot says 41,000, answer from 41,000 and optionally mention that it changed.
 
-## Hermes isolation options
+## Session commands
 
-### Option A — X4-owned transcript + Hermes one-shot reasoning
+The cockpit bridge recognizes these text commands after `/hermes`:
 
-The bridge stores transcript/summary/facts itself, then invokes Hermes one-shot with the current turn package.
+- `/hermes session` — show current save scope, confidence, transcript path, and turn count.
+- `/hermes reset` — clear the current save-scoped cockpit conversation.
+- `/hermes save <name>` — bind subsequent unlabelled turns to a configured save scope.
+- `/hermes export` — print the current save-scope transcript path.
 
-Pros:
-- No pollution of Hermes app sessions.
-- Save-scope routing is fully explicit and testable.
-- Easy to prune/export/delete per save.
-
-Cons:
-- Requires this repo to implement summarization/compaction and transcript management.
-
-### Option B — isolated Hermes home per app or save
-
-The bridge invokes Hermes with an isolated app-owned `HERMES_HOME` and a deterministic session name per save.
-
-Example shape:
-
-```bash
-HERMES_HOME=%LOCALAPPDATA%/x4-llm-copilot/hermes-home \
-hermes chat --continue x4-save-<save_scope_id> --source x4-cockpit --toolsets "" -q "..."
-```
-
-Pros:
-- Uses Hermes' native session machinery.
-- Lower initial implementation cost.
-
-Cons:
-- Still needs careful `HERMES_HOME` isolation.
-- Session naming and pruning must be owned by this repo.
-- Must prevent accidental fallback to the default Hermes home.
-
-### Recommended path
-
-Start with Option A for correctness: X4 owns save-scoped transcripts and summaries, Hermes is a stateless reasoning process over an explicit context packet. Once the save-scope resolver is proven, Option B can be added as an optimization if native Hermes session continuation is worth it.
+All commands still go through a live ambient fetch first so they can resolve the same save-scope path as normal turns. If `allow_derived_save_scope` is disabled and no explicit/configured scope exists, the bridge fails closed with a cockpit error.
 
 ## Memory types
 
@@ -131,30 +117,21 @@ Keep these separate:
 - `transcript.jsonl`: raw cockpit turns for the save.
 - `summary.md`: compact natural-language continuity for references and player preferences inside that save.
 - `facts.json`: structured, low-cardinality durable facts discovered in that save, with provenance and timestamps.
-- `telemetry_cache.json`: optional last snapshots for debugging only; never current truth.
+- `telemetry_cache.json`: reserved for optional last snapshots for debugging only; never current truth.
 
 Do not store raw high-volume telemetry indefinitely. Summarize or discard it unless it is needed as audit evidence.
 
-## Reset / lifecycle commands
+## Tests proving the mechanism
 
-Required user-visible controls:
-
-- `/hermes session` — show current save scope, confidence, transcript path, and last turn time.
-- `/hermes reset` — clear the current save-scoped cockpit conversation after confirmation.
-- `/hermes save <name>` — manually bind/rename the current save scope when automatic identity is ambiguous.
-- `/hermes export` — write a portable transcript/summary bundle for the current save.
-
-## Test requirements
-
-Implementation is not done until tests prove:
+Implemented tests cover:
 
 - Two fake save scopes do not share transcript or summary state.
-- A follow-up question in the same save can resolve a previous answer.
-- A follow-up question after switching save scope cannot see the prior save's context.
-- Fresh telemetry overrides remembered facts.
-- Missing/ambiguous save identity fails closed with an explicit cockpit message.
-- The bridge never writes X4 memory into the default Hermes home during tests.
+- A follow-up question in the same save sees the prior save-scoped turn.
+- Fresh telemetry is passed into the responder for the current turn and can override prior memory.
+- Hermes is invoked with app-owned isolated `HERMES_HOME`, not the ambient/default Hermes home.
+- Missing/ambiguous save identity fails closed when derived scopes are disabled.
+- `/hermes session` reports the save-scoped transcript path under the configured state root.
 
-## Current gap
+## Remaining live-game gap
 
-The current bridge invokes Hermes with `--source x4-cockpit` and an already-fetched telemetry snapshot, but it does not yet persist a real save-scoped conversation store. Until this document's architecture is implemented, cockpit chat should be described as live telemetry Q/A with bounded routing and deterministic fallbacks, not as durable save memory.
+The bridge can consume an explicit save id if X4 provides one, but the mod has not yet verified a live X4 API that exposes the actual save file identity. Until that exists, use `--save-scope` or `/hermes save <name>` for clean per-save binding; derived scopes are useful but can change if their telemetry basis changes.

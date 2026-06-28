@@ -145,16 +145,17 @@ Protocol on the same `x4_llm_copilot` pipe now has two request classes plus prob
 Run the persistent chat bridge, not the one-shot `tool --source live-pipe` owner, when using cockpit chat:
 
 ```bash
-uv run --extra winpipe x4-copilot serve-chat --pipe x4_llm_copilot --fetch-timeout 8 --chat-timeout 90
+uv run --extra winpipe x4-copilot serve-chat --pipe x4_llm_copilot --fetch-timeout 8 --chat-timeout 90 --save-scope my-x4-save
 ```
 
 The bridge owns the single named-pipe server, serializes bridge-owned telemetry fetches, and routes chat responses by correlation id. A slow Hermes answer happens after the live telemetry snapshot is fetched, so it does not hold the telemetry fetch lock. If Python/Hermes is absent, the cockpit-side pending id times out and prints an explicit error instead of replaying an old answer.
 
-Cockpit conversation memory is intentionally **not** the operator's normal Hermes memory. The design target is a save-scoped X4 session layer: per-save transcript/summary/facts stored under an app-owned X4 Copilot state root, with fresh live telemetry injected each turn. See `docs/SAVE_SCOPED_COCKPIT_SESSIONS.md` for the isolation contract, save-scope identity resolver, storage layout, reset/export commands, and tests required before this can be claimed as durable save memory.
+Cockpit conversation memory is intentionally **not** the operator's normal Hermes memory. The bridge now uses a save-scoped X4 session layer: per-save transcript/summary/facts stored under an app-owned X4 Copilot state root, with fresh live telemetry injected each turn and Hermes invoked under isolated `HERMES_HOME=<state-root>/hermes-home`. See `docs/SAVE_SCOPED_COCKPIT_SESSIONS.md` for the isolation contract, save-scope identity resolver, storage layout, reset/export/save commands, and tests proving the mechanism.
 
 Chat routing is intentionally live but bounded:
 
 - `/hermes ambient_context` is a help/capability probe. It answers directly with the telemetry categories the bridge can read and does not consume the pipe with a fetch.
+- `/hermes session`, `/hermes reset`, `/hermes save <name>`, and `/hermes export` operate on the current save-scoped cockpit session store, not the operator's default Hermes memory.
 - Known scoped questions fetch their matching live intent: trade questions -> `trade_in_sector`; ship/status questions -> `ship_status`; faction/politics questions -> `faction_state`; nearby/station/gate/object questions -> `sector_objects`.
 - Unknown natural chat, such as `/hermes hallo`, performs a cheap live `ambient_context` fetch before answering, so smalltalk can still reference verified current sector/ship/credits/cargo instead of inventing state.
 - All chat answers remain text-only. The bridge does not mutate X4 state, set waypoints, mark targets, autopilot, or run combat actions.
@@ -211,7 +212,6 @@ The handoff's risk was that Hermes might not consume MCP. Verified current Herme
 
 - Wider live validation across sectors plus a verified live collectable/wreck enumeration API.
 - Expanded rank derivation beyond standard faction ceremony licence tiers.
-- Save-scoped cockpit session store and resolver from `docs/SAVE_SCOPED_COCKPIT_SESSIONS.md`.
 - Reflex STT/TTS path.
 - Mutating actions (`set_waypoint`, `mark_target`).
 

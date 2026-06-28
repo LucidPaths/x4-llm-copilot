@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from .advisor import GroundedAdvisor
+from .cockpit_session import (
+    CockpitSessionContext,
+    CockpitSessionStore,
+    SaveScope,
+    SaveScopeResolver,
+    sanitize_scope_id,
+)
 from .intent import classify
 from .models import PayloadError, TelemetryPayload
 from .pipe import DuplexTransport, NamedPipeServer, PipeBusyError, PipeDisconnectedError
@@ -26,7 +33,7 @@ from .tools import (
 
 
 class ChatResponder(Protocol):
-    def answer(self, question: str, payload: TelemetryPayload) -> str: ...
+    def answer(self, question: str, payload: TelemetryPayload, session: CockpitSessionContext | None = None) -> str: ...
 
 
 @dataclass(frozen=True)
@@ -38,6 +45,9 @@ class ChatBridgeConfig:
     bridge_log_path: str = "var/chat_bridge.jsonl"
     hermes_command: str | None = None
     chat_response_chunk_chars: int = 900
+    session_state_root: str | None = None
+    save_scope: str | None = None
+    allow_derived_save_scope: bool = True
 
 
 class HermesAgentResponder:
@@ -54,11 +64,23 @@ class HermesAgentResponder:
         self.timeout_s = timeout_s
         self.fallback = GroundedAdvisor()
 
-    def answer(self, question: str, payload: TelemetryPayload) -> str:
+    def answer(self, question: str, payload: TelemetryPayload, session: CockpitSessionContext | None = None) -> str:
+        session_packet: dict[str, Any] = {}
+        if session is not None:
+            session_packet = {
+                "save_scope": session.scope.__dict__,
+                "summary": session.summary,
+                "recent_turns": session.recent_turns,
+                "transcript_path": session.transcript_path,
+            }
         prompt = (
             "You are Hermes answering inside X4: Foundations. Text out only; do not propose or perform actions. "
-            "Use only this fresh live telemetry snapshot; if it is empty, say so. Keep the answer concise.\n\n"
+            "Conversation context is only for references and intent; fresh live telemetry is the only current-state authority. "
+            "If telemetry and memory disagree, use telemetry and say it changed. Keep the answer concise.\n\n"
             f"Player question: {question}\n\n"
+            "Save-scoped cockpit context JSON:\n"
+            + json.dumps(session_packet, ensure_ascii=False)
+            + "\n\n"
             "Live telemetry JSON:\n"
             + json.dumps(
                 {
@@ -72,13 +94,21 @@ class HermesAgentResponder:
                 ensure_ascii=False,
             )
         )
+        env = os.environ.copy()
+        command = [self.command]
+        if session is not None:
+            Path(session.hermes_home).mkdir(parents=True, exist_ok=True)
+            env["HERMES_HOME"] = session.hermes_home
+            command.extend(["--continue", f"x4-save-{session.scope.save_scope_id}"])
+        command.extend(["chat", "-Q", "--source", "x4-cockpit", "--toolsets", "", "-q", prompt])
         try:
             completed = subprocess.run(
-                [self.command, "chat", "-Q", "--source", "x4-cockpit", "--toolsets", "", "-q", prompt],
+                command,
                 check=False,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_s,
+                env=env,
             )
         except (OSError, subprocess.SubprocessError, TimeoutError):
             return self.fallback.answer(question, payload)
@@ -101,6 +131,8 @@ class ChatPipeBridge:
         self.config = config or ChatBridgeConfig()
         self._transport = transport or NamedPipeServer(self.config.pipe_name)
         self._responder = responder or HermesAgentResponder(command=self.config.hermes_command, timeout_s=self.config.chat_timeout_s)
+        self._session_store = CockpitSessionStore(self.config.session_state_root)
+        self._scope_resolver = SaveScopeResolver(configured_scope=self.config.save_scope, allow_derived=self.config.allow_derived_save_scope)
         self._write_lock = threading.Lock()
         self._fetch_lock = threading.Lock()
         self._pending_fetch: queue.Queue[dict[str, Any]] | None = None
@@ -159,14 +191,14 @@ class ChatPipeBridge:
         if msg_type == "chat_request":
             request_id = _required_text(message, "id")
             question = _required_text(message, "text")
-            thread = threading.Thread(target=self._handle_chat_request, args=(request_id, question), daemon=True, name=f"x4-chat-{request_id}")
+            thread = threading.Thread(target=self._handle_chat_request, args=(request_id, question, message), daemon=True, name=f"x4-chat-{request_id}")
             self._threads.append(thread)
             thread.start()
             return
         # Unknown messages are explicit protocol errors, but keep the bridge alive.
         self._write_json({"type": "protocol_error", "error": f"unsupported message type: {msg_type}"})
 
-    def _handle_chat_request(self, request_id: str, question: str) -> None:
+    def _handle_chat_request(self, request_id: str, question: str, request_message: dict[str, Any]) -> None:
         try:
             self._log_event("chat_request_start", id=request_id, question=question)
             direct_answer = self.answer_direct(question)
@@ -176,8 +208,20 @@ class ChatPipeBridge:
                 self._write_chat_response(request_id, answer)
                 return
             payload = self.fetch_for_question(question)
-            answer = _display_safe_text(self._responder.answer(question, payload))
-            self._log_event("chat_response_ready", id=request_id, intent=payload.intent, text=answer)
+            save_binding = _save_binding_command(question)
+            if save_binding is not None:
+                self._scope_resolver.configured_scope = save_binding
+                scope = SaveScope(sanitize_scope_id(save_binding), "configured", {"source": "chat_command", "command": "save"})
+            else:
+                scope = self._scope_resolver.resolve(request=request_message, payload=payload)
+            command_answer = self.answer_session_command(question, scope)
+            if command_answer is not None:
+                answer = _display_safe_text(command_answer)
+            else:
+                session = self._session_store.context(scope)
+                answer = _display_safe_text(self._responder.answer(question, payload, session))
+                self._session_store.append_turn(scope, question=question, answer=answer, payload=payload)
+            self._log_event("chat_response_ready", id=request_id, intent=payload.intent, save_scope=scope.save_scope_id, scope_confidence=scope.confidence, text=answer)
             self._write_chat_response(request_id, answer)
         except Exception as exc:  # noqa: BLE001 - surfaced to cockpit as clean error state
             self._log_event("chat_response_error", id=request_id, error=str(exc))
@@ -203,6 +247,24 @@ class ChatPipeBridge:
             "faction_state (relations/events), and sector_objects (stations/gates/notable ships). "
             "Ask in plain language, e.g. 'what's selling near me?' or 'what's my ship status?'"
         )
+
+    def answer_session_command(self, question: str, scope: SaveScope) -> str | None:
+        command = _normalized_command(question)
+        if command in {"session", "session_status"}:
+            status = self._session_store.status(scope)
+            return (
+                f"X4 session {status['save_scope_id']} ({status['confidence']}), "
+                f"turns={status['turn_count']}, transcript={status['transcript_path']}"
+            )
+        if command in {"reset", "session_reset"}:
+            self._session_store.reset(scope)
+            return f"Cleared X4 cockpit session for save scope {scope.save_scope_id}."
+        if command in {"export", "session_export"}:
+            return f"X4 cockpit session transcript: {self._session_store.status(scope)['transcript_path']}"
+        save_binding = _save_binding_command(question)
+        if save_binding is not None:
+            return f"Bound X4 cockpit session to save scope {scope.save_scope_id}."
+        return None
 
     def fetch_for_question(self, question: str) -> TelemetryPayload:
         routed = classify(question)
@@ -284,8 +346,8 @@ def _required_text(message: dict[str, Any], key: str) -> str:
     return value.strip()
 
 
-def serve_chat_bridge(pipe_name: str = "x4_llm_copilot", *, fetch_timeout_s: float = 8.0, chat_timeout_s: float = 90.0) -> None:
-    bridge = ChatPipeBridge(ChatBridgeConfig(pipe_name=pipe_name, fetch_timeout_s=fetch_timeout_s, chat_timeout_s=chat_timeout_s))
+def serve_chat_bridge(pipe_name: str = "x4_llm_copilot", *, fetch_timeout_s: float = 8.0, chat_timeout_s: float = 90.0, session_state_root: str | None = None, save_scope: str | None = None) -> None:
+    bridge = ChatPipeBridge(ChatBridgeConfig(pipe_name=pipe_name, fetch_timeout_s=fetch_timeout_s, chat_timeout_s=chat_timeout_s, session_state_root=session_state_root, save_scope=save_scope))
     bridge.serve_forever()
 
 
@@ -312,6 +374,16 @@ def _chunk_display_text(text: str, max_chars: int) -> list[str]:
 
 def _normalized_command(text: str) -> str:
     return str(text or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _save_binding_command(text: str) -> str | None:
+    raw = str(text or "").strip()
+    lowered = raw.lower()
+    if lowered.startswith("save ") and raw[5:].strip():
+        return raw[5:].strip()
+    if lowered.startswith("session save ") and raw[13:].strip():
+        return raw[13:].strip()
+    return None
 
 
 def _display_safe_text(text: str) -> str:

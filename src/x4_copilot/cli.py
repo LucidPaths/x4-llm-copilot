@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     p_chat.add_argument("--pipe", default="x4_llm_copilot")
     p_chat.add_argument("--fetch-timeout", type=float, default=8.0)
     p_chat.add_argument("--chat-timeout", type=float, default=90.0)
+    p_chat.add_argument("--state-root", type=Path, default=None, help="X4 Copilot app state root for save-scoped cockpit transcripts")
+    p_chat.add_argument("--save-scope", default=None, help="manual save-scope binding when X4 cannot expose a verified save id")
 
     p_tool = sub.add_parser("tool", help="call the structured tool surface")
     p_tool.add_argument("name", choices=["ambient", "trade", "ship", "faction", "objects"])
@@ -68,7 +70,13 @@ def main(argv: list[str] | None = None) -> int:
         serve_named_pipe(args.pipe)
         return 0
     if args.command == "serve-chat":
-        serve_chat_bridge(args.pipe, fetch_timeout_s=args.fetch_timeout, chat_timeout_s=args.chat_timeout)
+        serve_chat_bridge(
+            args.pipe,
+            fetch_timeout_s=args.fetch_timeout,
+            chat_timeout_s=args.chat_timeout,
+            session_state_root=str(args.state_root) if args.state_root else None,
+            save_scope=args.save_scope,
+        )
         return 0
     if args.command == "tool":
         if args.source == "live-pipe":
