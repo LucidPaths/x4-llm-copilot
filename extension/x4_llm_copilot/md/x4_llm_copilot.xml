@@ -40,7 +40,16 @@
         <event_cue_signalled />
       </conditions>
       <actions>
-        <raise_lua_event name="'x4LLMCopilotChatCommand'" param="event.param.$terms" />
+        <debug_text text="'X4 LLM Copilot: /hermes command callback reached: %s'.[event.param]" filter="general" />
+      </actions>
+    </cue>
+
+    <cue name="Hermes_Chat_Text_Entered" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.Chat_Window_API.Text_Entered" />
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4LLMCopilotChatTextEntered'" param="event.param.$text" />
       </actions>
     </cue>
 

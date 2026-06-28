@@ -864,6 +864,18 @@ local function chat_text_from_terms(terms)
     return table.concat(parts, " ")
 end
 
+local function chat_text_from_raw_entry(text)
+    text = tostring(text or "")
+    local question = string.match(text, "^%s*/hermes%s+(.+)%s*$")
+    if question then
+        return question
+    end
+    if string.match(text, "^%s*/hermes%s*$") then
+        return ""
+    end
+    return nil
+end
+
 function L.Init()
     DebugError("X4 LLM Copilot Lua ambient module initialized")
     RegisterEvent("x4LLMCopilotFetchAmbient", function(_, request_json)
@@ -886,10 +898,17 @@ function L.Init()
     RegisterEvent("x4LLMCopilotChatCommand", function(_, terms)
         emit_chat_request(chat_text_from_terms(terms))
     end)
+    RegisterEvent("x4LLMCopilotChatTextEntered", function(_, text)
+        local question = chat_text_from_raw_entry(text)
+        if question ~= nil then
+            emit_chat_request(question)
+        end
+    end)
     RegisterEvent("x4LLMCopilotChatTimeout", function(_, id)
         handle_chat_timeout(id)
     end)
 end
+
 
 Register_OnLoad_Init(L.Init, "extensions.x4_llm_copilot.ui.x4_llm_copilot.ambient")
 Register_Require_Response("extensions.x4_llm_copilot.ui.x4_llm_copilot.ambient", L)
