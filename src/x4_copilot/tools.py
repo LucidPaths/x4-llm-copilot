@@ -128,7 +128,7 @@ class LivePipeTelemetryFetcher:
     """
 
     provenance = FetchProvenance(source="x4_lua_live_pipe", stale=False)
-    supported_intents = frozenset({"ambient_context", "ship_status", "trade_in_sector", "faction_state"})
+    supported_intents = frozenset({"ambient_context", "ship_status", "trade_in_sector", "faction_state", "sector_objects"})
 
     def __init__(
         self,
@@ -147,7 +147,7 @@ class LivePipeTelemetryFetcher:
 
     def __call__(self, request: FetchRequest) -> TelemetryPayload:
         if request.intent not in self.supported_intents:
-            raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status/trade_in_sector/faction_state, got {request.intent}")
+            raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status/trade_in_sector/faction_state/sector_objects, got {request.intent}")
         if request.intent == "trade_in_sector":
             requested_scope = request.args.get("scope")
             if requested_scope is None and "radar_only" in request.args:
@@ -161,6 +161,8 @@ class LivePipeTelemetryFetcher:
             return telemetry_payload_from_raw_trade(raw)
         if request.intent == "faction_state":
             return telemetry_payload_from_raw_faction_state(raw)
+        if request.intent == "sector_objects":
+            return telemetry_payload_from_raw_sector_objects(raw)
         payload = telemetry_payload_from_raw_ambient(raw)
         if request.intent == "ship_status":
             return TelemetryPayload(intent="ship_status", ambient=payload.ambient, data=payload.data, as_of="fresh live pipe response")
@@ -320,6 +322,62 @@ def telemetry_payload_from_raw_trade(raw: dict[str, Any]) -> TelemetryPayload:
         data=data,
         as_of="fresh live raw Lua trade probe",
     )
+
+
+def telemetry_payload_from_raw_sector_objects(raw: dict[str, Any]) -> TelemetryPayload:
+    if raw.get("type") != "telemetry_raw":
+        raise PayloadError("raw sector objects telemetry type must be telemetry_raw")
+    if raw.get("intent") != "sector_objects":
+        raise PayloadError("raw sector objects telemetry intent must be sector_objects")
+    if raw.get("source") != "x4_lua_live_pipe":
+        raise PayloadError("raw sector objects telemetry source must be x4_lua_live_pipe")
+    if raw.get("schema") != "sector_objects_v1":
+        raise PayloadError("raw sector objects telemetry schema must be sector_objects_v1")
+    if raw.get("error"):
+        raise PayloadError(f"raw sector objects telemetry error: {raw.get('error')}")
+
+    return TelemetryPayload(
+        intent="sector_objects",
+        ambient=AmbientContext(
+            sector=_optional_raw_str(raw.get("sector_raw")),
+            ship=_optional_raw_str(raw.get("ship_name")),
+            credits=_optional_raw_int(raw.get("player_money"), "player_money"),
+        ),
+        data=_normalize_sector_objects_payload(raw),
+        as_of="fresh live raw Lua sector objects probe",
+    )
+
+
+def _normalize_sector_objects_payload(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    objects_raw = raw.get("objects_raw")
+    if isinstance(objects_raw, list):
+        return [_normalize_sector_object(obj) for obj in objects_raw]
+    if objects_raw is not None:
+        return [{"kind": "sector_objects_raw", "objects_raw": objects_raw}]
+    return []
+
+
+def _normalize_sector_object(obj: Any) -> dict[str, Any]:
+    if not isinstance(obj, dict):
+        return {"kind": "sector_object_raw", "raw": obj}
+    object_type = _optional_raw_str(obj.get("type"))
+    distance_km = _optional_raw_number(obj.get("distance_km"), "distance_km")
+    if distance_km is None:
+        raise PayloadError("sector object distance_km is required")
+    return {
+        "kind": "sector_object",
+        "id": _optional_raw_str(obj.get("id")),
+        "name": _optional_raw_str(obj.get("name")),
+        "type": object_type,
+        "class": _optional_raw_str(obj.get("class")),
+        "dist_km": distance_km,
+        "distance_m": _optional_raw_number(obj.get("distance_m"), "distance_m"),
+        "distance_source": _optional_raw_str(obj.get("distance_source")),
+        "faction": _optional_raw_str(obj.get("faction")),
+        "owner": _optional_raw_str(obj.get("owner")),
+        "idcode": _optional_raw_str(obj.get("idcode")),
+        "raw": obj,
+    }
 
 
 def telemetry_payload_from_raw_faction_state(raw: dict[str, Any]) -> TelemetryPayload:
@@ -635,8 +693,8 @@ class X4ToolSurface:
         fetched = self._fetch(FetchRequest(intent="sector_objects", args={"kinds": kinds or []}))
         objects = fetched.payload.data
         if kinds:
-            allowed = {kind.lower() for kind in kinds}
-            objects = [obj for obj in objects if str(obj.get("type", "")).lower() in allowed]
+            allowed = {_canonical_sector_kind(kind) for kind in kinds}
+            objects = [obj for obj in objects if _canonical_sector_kind(str(obj.get("type") or obj.get("kind") or "")) in allowed]
         result = _payload_base(fetched)
         result["objects"] = objects
         return result
@@ -794,6 +852,13 @@ def _extract_faction_state(items: list[dict[str, Any]]) -> tuple[list[dict[str, 
             if isinstance(nested_events, list):
                 events.extend(_dict_items(nested_events))
     return relations, events
+
+
+def _canonical_sector_kind(kind: str) -> str:
+    lowered = kind.lower()
+    if lowered in {"loot", "lockbox"}:
+        return "collectable"
+    return lowered
 
 
 def _dict_items(items: list[Any]) -> list[dict[str, Any]]:

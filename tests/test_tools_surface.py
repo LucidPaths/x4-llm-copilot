@@ -15,6 +15,7 @@ from x4_copilot.tools import (
     create_mock_tool_surface,
     telemetry_payload_from_raw_ambient,
     telemetry_payload_from_raw_faction_state,
+    telemetry_payload_from_raw_sector_objects,
     telemetry_payload_from_raw_trade,
 )
 
@@ -79,8 +80,11 @@ def test_faction_state_normalizes_observed_live_raw_shape_and_preserves_raw():
                 "faction_shortname": "VIG",
                 "standing": 10,
                 "relation_name": "Friend",
-                "rank_title": "Syndicate Enforcer",
-                "licences_raw": [{"type": "ceremonyfriend", "name": "Syndicate Enforcer", "isrank": True}],
+                "rank_title": "Capo",
+                "licences_raw": [
+                    {"type": "ceremonyfriend", "name": "Syndicate Enforcer", "isrank": True},
+                    {"type": "ceremonyally", "name": "Capo", "isrank": True},
+                ],
             }
         ],
         "events_raw": [
@@ -107,14 +111,75 @@ def test_faction_state_normalizes_observed_live_raw_shape_and_preserves_raw():
             "standing": 10,
             "relation_name": "Friend",
             "rank_title": "Syndicate Enforcer",
-            "rank_title_raw": "Syndicate Enforcer",
-            "licences_raw": [{"type": "ceremonyfriend", "name": "Syndicate Enforcer", "isrank": True}],
+            "rank_title_raw": "Capo",
+            "licences_raw": [
+                {"type": "ceremonyfriend", "name": "Syndicate Enforcer", "isrank": True},
+                {"type": "ceremonyally", "name": "Capo", "isrank": True},
+            ],
             "raw": raw["standings_raw"][0],
         }
     ]
     assert result["events"][0]["kind"] == "promotion"
     assert result["events"][0]["faction"] == "loanshark"
     assert result["events"][0]["raw"] == raw["events_raw"][0]
+
+
+
+def test_sector_objects_normalizes_live_shape_preserves_raw_and_requires_distance():
+    raw = {
+        "type": "telemetry_raw",
+        "intent": "sector_objects",
+        "source": "x4_lua_live_pipe",
+        "schema": "sector_objects_v1",
+        "trigger": "fetch_response",
+        "sector_raw": "Windfall I Union Summit",
+        "ship_name": "Raleigh (Container)",
+        "player_money": 123,
+        "objects_raw": [
+            {
+                "id": "111",
+                "name": "VIG Ice Refinery I",
+                "type": "station",
+                "class": "station",
+                "distance_m": 3210,
+                "distance_km": 3.21,
+                "distance_source": "C.GetObjectPositionInSector",
+                "faction": "Vigor Syndicate",
+                "owner": "loanshark",
+                "idcode": "ABC-123",
+            },
+            {"id": "222", "name": "North Gate", "type": "gate", "class": "gate", "distance_m": 9000, "distance_km": 9},
+        ],
+    }
+
+    payload = telemetry_payload_from_raw_sector_objects(raw)
+    result = X4ToolSurface(lambda request: payload, provenance=FetchProvenance(source="x4_lua_live_pipe")).fetch_sector_objects(kinds=["station"])
+
+    assert result["ambient"]["sector"] == "Windfall I Union Summit"
+    assert result["objects"] == [
+        {
+            "kind": "sector_object",
+            "id": "111",
+            "name": "VIG Ice Refinery I",
+            "type": "station",
+            "class": "station",
+            "dist_km": 3.21,
+            "distance_m": 3210,
+            "distance_source": "C.GetObjectPositionInSector",
+            "faction": "Vigor Syndicate",
+            "owner": "loanshark",
+            "idcode": "ABC-123",
+            "raw": raw["objects_raw"][0],
+        }
+    ]
+
+    missing_distance = raw | {"objects_raw": [{"id": "bad", "name": "No Distance", "type": "station"}]}
+    try:
+        telemetry_payload_from_raw_sector_objects(missing_distance)
+    except Exception as exc:  # noqa: BLE001 - public contract asserted by message
+        assert "distance_km is required" in str(exc)
+    else:
+        raise AssertionError("sector objects without distance_km must fail closed")
 
 
 def test_ambient_context_uses_dedicated_fetch_intent():
@@ -526,6 +591,47 @@ def test_live_pipe_fetcher_accepts_radar_range_trade_schema(tmp_path):
     assert payload.data[0]["station_distance_km"] == 3.21
     assert payload.data[0]["raw"]["ware"] == "ice"
     assert any('"scope": "radar_range"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
+
+
+
+def test_live_pipe_fetcher_routes_sector_objects_request_and_kinds(tmp_path):
+    class FakeSectorObjectsTransport:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.messages = [
+                json.dumps(
+                    {
+                        "type": "telemetry_raw",
+                        "intent": "sector_objects",
+                        "source": "x4_lua_live_pipe",
+                        "schema": "sector_objects_v1",
+                        "trigger": "fetch_response",
+                        "sector_raw": "Windfall I Union Summit",
+                        "objects_raw": [{"id": "111", "name": "Shipyard", "type": "station", "class": "station", "distance_m": 1000, "distance_km": 1}],
+                    }
+                )
+            ]
+
+        def connect(self) -> None:
+            pass
+
+        def read(self) -> str:
+            return self.messages.pop(0)
+
+        def write(self, message: str) -> None:
+            self.writes.append(message)
+
+        def close(self) -> None:
+            pass
+
+    fetcher = LivePipeTelemetryFetcher(transport=FakeSectorObjectsTransport(), raw_log_path=tmp_path / "raw.jsonl")
+    payload = fetcher(FetchRequest(intent="sector_objects", args={"kinds": ["station"]}))
+
+    assert payload.intent == "sector_objects"
+    assert payload.data[0]["type"] == "station"
+    assert payload.data[0]["dist_km"] == 1
+    assert any('"intent": "sector_objects"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
+    assert any('"kinds": ["station"]' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
 
 
 def test_live_pipe_fetcher_timeout_raises_instead_of_replaying_log(tmp_path):

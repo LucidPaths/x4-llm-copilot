@@ -129,6 +129,7 @@ Route all via OpenRouter (or shim) for hot-swap.
 ```json
 // request
 { "type": "fetch", "intent": "trade_in_sector", "args": { "scope": "radar_range" } }
+{ "type": "fetch", "intent": "sector_objects", "args": { "kinds": ["station", "gate"] } }
 
 // response
 {
@@ -151,7 +152,7 @@ Map onto Mantella's existing Action interface (define X4 equivalents: `set_waypo
 | `trade_in_sector` | trade offers; live implementation supports `docked_station` plus bounded `radar_range` multi-station reads |
 | `faction_state` | live player↔faction standings (`faction_state_v1`) plus raw-preserved diplomacy/event operations when available |
 | `ship_status` | hull/shield/cargo/credits/fuel of player ship |
-| `sector_objects` | stations/gates/lockboxes/wrecks in current sector |
+| `sector_objects` | live bounded `sector_objects_v1` current-sector objects: stations, gates, and notable ships with distance; collectables/lockboxes/wrecks pending verified live enumeration API |
 
 ---
 

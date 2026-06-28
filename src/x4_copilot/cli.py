@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     p_tool.add_argument("--pipe", default="x4_llm_copilot")
     p_tool.add_argument("--timeout", type=float, default=8.0)
     p_tool.add_argument("--scope", choices=["docked_station", "radar_range"], default="docked_station", help="trade tool scope; live-pipe supports docked_station and bounded radar_range")
+    p_tool.add_argument("--kinds", default="", help="comma-separated sector object kinds, e.g. station,gate,ship,collectable,wreck")
 
     sub.add_parser("mcp-config", help="print a Hermes stdio MCP config snippet for this repo")
     sub.add_parser("providers", help="list configured provider profiles without exposing keys")
@@ -76,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
             "trade": lambda: surface.fetch_trade_offers(scope=args.scope),
             "ship": surface.fetch_ship_status,
             "faction": surface.fetch_faction_state,
-            "objects": surface.fetch_sector_objects,
+            "objects": lambda: surface.fetch_sector_objects(kinds=[kind.strip() for kind in args.kinds.split(",") if kind.strip()] or None),
         }
         try:
             result = calls[args.name]()

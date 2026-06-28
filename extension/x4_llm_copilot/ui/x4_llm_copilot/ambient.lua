@@ -8,6 +8,7 @@ ffi.cdef[[
         float y;
         float z;
     } Coord3D;
+    const char* GetComponentClass(UniverseID componentid);
     UniverseID GetContextByClass(UniverseID componentid, const char* classname, bool includeself);
     UniverseID GetPlayerID(void);
     UniverseID GetPlayerOccupiedShipID(void);
@@ -52,6 +53,7 @@ ffi.cdef[[
     uint32_t GetNumDiplomacyEvents();
     uint32_t GetDiplomacyEventOperations(DiplomacyEventOperation* result, uint32_t resultlen, bool active);
     uint32_t GetNumDiplomacyEventOperations(bool active);
+    bool IsComponentClass(UniverseID componentid, const char* classname);
 ]]
 
 local L = {}
@@ -181,6 +183,8 @@ end
 local STATION_CAP = 32
 local OFFERS_PER_STATION_CAP = 20
 local TOTAL_OFFER_CAP = 200
+local SECTOR_OBJECT_TOTAL_CAP = 160
+local SECTOR_OBJECT_KIND_CAPS = { station = 64, gate = 16, ship = 40, collectable = 32, wreck = 32 }
 
 local function request_scope(request_json)
     request_json = tostring(request_json or "")
@@ -218,6 +222,168 @@ local function distance_between(a, b)
     local dy = a.y - b.y
     local dz = a.z - b.z
     return math.sqrt((dx * dx) + (dy * dy) + (dz * dz))
+end
+
+local function request_kinds(request_json)
+    request_json = tostring(request_json or "")
+    local allowed = {}
+    local saw = false
+    local array_text = string.match(request_json, '"kinds"%s*:%s*%[(.-)%]')
+    if array_text ~= nil then
+        for kind in string.gmatch(array_text, '"([^"]+)"') do
+            kind = string.lower(kind)
+            if kind == "loot" or kind == "lockbox" then
+                kind = "collectable"
+            end
+            allowed[kind] = true
+            saw = true
+        end
+    end
+    if not saw then
+        allowed.station = true
+        allowed.gate = true
+        allowed.ship = true
+        allowed.collectable = true
+        allowed.wreck = true
+    end
+    return allowed
+end
+
+local function kind_allowed(allowed, kind)
+    return allowed[kind] == true
+end
+
+local function is_component_class(component64, classname)
+    local ok, result = pcall(function() return C.IsComponentClass(component64, classname) end)
+    return ok and result == true
+end
+
+local function component_class(component64)
+    local ok, value = pcall(function() return C.GetComponentClass(component64) end)
+    if ok and value ~= nil then
+        return ffi.string(value)
+    end
+    return nil
+end
+
+local function classify_sector_object(object64, classid, realclassid, iswreck)
+    classid = tostring(classid or "")
+    realclassid = tostring(realclassid or "")
+    if iswreck == true then
+        return "wreck"
+    end
+    if classid == "station" or realclassid == "station" or is_component_class(object64, "station") then
+        return "station"
+    end
+    if classid == "gate" or realclassid == "gate" or is_component_class(object64, "gate") then
+        return "gate"
+    end
+    if classid == "lockbox" or classid == "collectablewares" or is_component_class(object64, "lockbox") or is_component_class(object64, "collectablewares") then
+        return "collectable"
+    end
+    if classid == "ship" or realclassid == "ship" or is_component_class(object64, "ship") then
+        return "ship"
+    end
+    return nil
+end
+
+local function append_sector_object(objects, seen, counts, allowed, object64, ship_pos, sector64, forced_kind)
+    if object64 == nil or object64 == 0 then
+        return false
+    end
+    local object_key = tostring(object64)
+    if seen[object_key] then
+        return false
+    end
+    local name, classid, realclassid, owner, factionname, idcode, isradarvisible, isplayerowned, isdocked, ismasstraffic, iswreck = GetComponentData(object64, "name", "classid", "realclassid", "owner", "factionname", "idcode", "isradarvisible", "isplayerowned", "isdocked", "ismasstraffic", "iswreck")
+    local kind = forced_kind or classify_sector_object(object64, classid, realclassid, iswreck)
+    if kind == nil or not kind_allowed(allowed, kind) then
+        return false
+    end
+    if counts.total >= SECTOR_OBJECT_TOTAL_CAP or (counts[kind] or 0) >= (SECTOR_OBJECT_KIND_CAPS[kind] or 0) then
+        return false
+    end
+    if kind == "ship" and not isplayerowned then
+        local notable_name = name ~= nil and tostring(name) ~= "" and not string.match(string.lower(tostring(name)), "^%s*.+%s+%([a-z]+%)%s*$")
+        if ismasstraffic == true or isdocked == true or not notable_name then
+            return false
+        end
+    end
+    local object_pos = component_position(object64)
+    local distance_m = distance_between(ship_pos, object_pos)
+    local distance_km = distance_m and (distance_m / 1000) or nil
+    if distance_km == nil then
+        return false
+    end
+    seen[object_key] = true
+    counts.total = counts.total + 1
+    counts[kind] = (counts[kind] or 0) + 1
+    table.insert(objects, {
+        id = object_key,
+        name = name,
+        type = kind,
+        class = classid,
+        realclass = realclassid,
+        component_class = component_class(object64),
+        idcode = idcode,
+        owner = owner,
+        faction = factionname,
+        sectorid = tostring(sector64),
+        distance_m = distance_m,
+        distance_km = distance_km,
+        distance_source = object_pos and object_pos.source or nil,
+        isradarvisible = isradarvisible,
+        isplayerowned = isplayerowned,
+        iswreck = iswreck,
+        raw = {
+            id = object_key,
+            name = name,
+            classid = classid,
+            realclassid = realclassid,
+            owner = owner,
+            factionname = factionname,
+            idcode = idcode,
+            isradarvisible = isradarvisible,
+            isplayerowned = isplayerowned,
+            isdocked = isdocked,
+            ismasstraffic = ismasstraffic,
+            iswreck = iswreck,
+            position = object_pos
+        }
+    })
+    return true
+end
+
+local function append_component_ids(target, source, values, forced_kind)
+    local count = 0
+    for _, value in ipairs(values or {}) do
+        table.insert(target, { id = value, source = source, forced_kind = forced_kind })
+        count = count + 1
+    end
+    return count
+end
+
+local function try_contained_component_source(target, scan_errors, source, forced_kind, func)
+    local ok, values = pcall(func)
+    if ok and type(values) == "table" then
+        return append_component_ids(target, source, values, forced_kind)
+    end
+    table.insert(scan_errors, { source = source, error = tostring(values) })
+    return 0
+end
+
+local function contained_objects(sector64, scan_errors)
+    local objects = {}
+    local source_counts = {}
+    source_counts.gates = try_contained_component_source(objects, scan_errors, "GetGates(sector)", "gate", function() return GetGates(sector64) end)
+    source_counts.ships = try_contained_component_source(objects, scan_errors, "GetContainedShips(sector,true)", "ship", function() return GetContainedShips(sector64, true) end)
+    if source_counts.ships == 0 then
+        source_counts.ships = try_contained_component_source(objects, scan_errors, "GetContainedShips(sector)", "ship", function() return GetContainedShips(sector64) end)
+    end
+    -- No global GetContainedObjects() exists in the live Lua environment. Keep this
+    -- source list to verified APIs only; collectable/wreck widening needs a new
+    -- observed live read rather than a noisy nonexistent function probe.
+    return objects, source_counts
 end
 
 local function limited_offers(offers, station64, station_name, sector64, distance_m, distance_km)
@@ -401,6 +567,84 @@ local function emit_trade_radar(trigger)
     AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
 end
 
+
+local function emit_sector_objects(trigger, request_json)
+    trigger = trigger or "unspecified"
+    local ok, payload = pcall(function()
+        local allowed = request_kinds(request_json)
+        local player_id = C.GetPlayerID()
+        local ship_id = C.GetPlayerOccupiedShipID()
+        local ship64 = ConvertStringTo64Bit(tostring(ship_id))
+        local ship_name, sector, sector_id = GetComponentData(ship64, "name", "sector", "sectorid")
+        local player_money = GetPlayerMoney()
+        local sector64 = ConvertStringTo64Bit(tostring(sector_id or 0))
+        local ship_pos = component_position(ship64)
+        local objects = {}
+        local seen = {}
+        local counts = { total = 0, station = 0, gate = 0, ship = 0, collectable = 0, wreck = 0 }
+        local scan_errors = {}
+        local source_counts = {}
+        local raw_objects = {}
+        local station_scan_count = 0
+        local object_scan_count = 0
+
+        if sector64 ~= 0 then
+            local stationtable = GetContainedStations(sector64, true) or {}
+            for _, station in ipairs(stationtable) do
+                station_scan_count = station_scan_count + 1
+                append_sector_object(objects, seen, counts, allowed, ConvertStringTo64Bit(tostring(station)), ship_pos, sector64, "station")
+            end
+
+            raw_objects, source_counts = contained_objects(sector64, scan_errors)
+            for _, object in ipairs(raw_objects) do
+                if counts.total >= SECTOR_OBJECT_TOTAL_CAP then
+                    break
+                end
+                object_scan_count = object_scan_count + 1
+                append_sector_object(objects, seen, counts, allowed, ConvertStringTo64Bit(tostring(object.id)), ship_pos, sector64, object.forced_kind)
+            end
+        end
+
+        return "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"sector_objects",'
+            .. '"source":"x4_lua_live_pipe",'
+            .. '"schema":"sector_objects_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"player_id":' .. json_string(tostring(player_id)) .. ','
+            .. '"ship_id":' .. json_string(tostring(ship_id)) .. ','
+            .. '"ship_name":' .. json_raw_string_or_null(ship_name) .. ','
+            .. '"sector_raw":' .. json_raw_string_or_null(sector) .. ','
+            .. '"sector_id":' .. json_raw_string_or_null(sector64 and tostring(sector64) or nil) .. ','
+            .. '"player_money":' .. json_number_or_null(player_money) .. ','
+            .. '"distance_unit":"meters_from_player_ship_position; distance_km derived by /1000",'
+            .. '"object_cap":' .. tostring(SECTOR_OBJECT_TOTAL_CAP) .. ','
+            .. '"kind_caps":' .. json_value(SECTOR_OBJECT_KIND_CAPS) .. ','
+            .. '"requested_kinds":' .. json_value(allowed) .. ','
+            .. '"object_count":' .. tostring(#objects) .. ','
+            .. '"station_scan_count":' .. tostring(station_scan_count) .. ','
+            .. '"object_scan_count":' .. tostring(object_scan_count) .. ','
+            .. '"source_counts":' .. json_value(source_counts or {}) .. ','
+            .. '"scan_errors":' .. json_value(scan_errors) .. ','
+            .. '"objects_raw":' .. json_value(objects)
+            .. "}"
+    end)
+
+    if not ok then
+        payload = "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"sector_objects",'
+            .. '"source":"x4_lua_live_pipe",'
+            .. '"schema":"sector_objects_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"error":' .. json_string(payload)
+            .. "}"
+    end
+
+    DebugError("X4 LLM Copilot Lua sector objects payload: " .. payload)
+    AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
+end
+
 local function emit_faction_state(trigger)
     trigger = trigger or "unspecified"
     local ok, payload = pcall(function()
@@ -554,6 +798,8 @@ function L.Init()
             emit_trade("fetch_response", request_scope(request_json))
         elseif intent == "faction_state" then
             emit_faction_state("fetch_response")
+        elseif intent == "sector_objects" then
+            emit_sector_objects("fetch_response", request_json)
         else
             emit_ambient("fetch_response")
         end

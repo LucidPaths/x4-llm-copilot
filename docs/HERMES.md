@@ -1,6 +1,6 @@
 # Hermes Integration
 
-Status: implemented as a read-only tool surface plus optional stdio MCP wrapper. Ambient/ship-status have verified runtime on-demand named-pipe fetches. Trade has verified live `docked_station` (`trade_offers_probe_v1`) and bounded `radar_range` (`trade_offers_radar_v1`) scopes with normalized observed offer fields plus raw preservation. Faction state now has a raw-first live pipe reader (`faction_state_v1`) for player↔faction standings and diplomacy/event operations.
+Status: implemented as a read-only tool surface plus optional stdio MCP wrapper. Ambient/ship-status have verified runtime on-demand named-pipe fetches. Trade has verified live `docked_station` (`trade_offers_probe_v1`) and bounded `radar_range` (`trade_offers_radar_v1`) scopes with normalized observed offer fields plus raw preservation. Faction state has a raw-first live pipe reader (`faction_state_v1`) for player↔faction standings and diplomacy/event operations. Sector objects now use live `sector_objects_v1` reads for bounded stations/gates/notable ships with per-object distance; collectable/wreck enumeration remains a documented widening seam.
 
 ## Verdict
 
@@ -82,7 +82,7 @@ By default the tool surface uses `MockTelemetryFetcher` and fixture files in `ex
 
 Every mock result is marked via structured provenance (`FetchProvenance(source="mock", stale=True)`) and surfaced as `source: "mock"` / `stale: true`. The tool layer does **not** parse `as_of` text to infer provenance.
 
-Verified runtime live pipe reads currently cover ambient context, ship status via the ambient payload, docked/radar-range trade offers, and faction-state reads. Sector objects remain mock/stale fixtures until their Lua read path exists.
+Verified runtime live pipe reads currently cover ambient context, ship status via the ambient payload, docked/radar-range trade offers, faction-state reads, and bounded sector-object reads for stations, gates, and notable ships.
 
 ### Runtime live pipe mode
 
@@ -118,13 +118,17 @@ uv run --extra winpipe x4-copilot tool ship --source live-pipe
 uv run --extra winpipe x4-copilot tool trade --source live-pipe --scope docked_station
 uv run --extra winpipe x4-copilot tool trade --source live-pipe --scope radar_range
 uv run --extra winpipe x4-copilot tool faction --source live-pipe
+uv run --extra winpipe x4-copilot tool objects --source live-pipe
+uv run --extra winpipe x4-copilot tool objects --source live-pipe --kinds station,gate
 ```
 
 `tool trade --source live-pipe --scope docked_station` reads the trade container the player ship is currently docked at. `--scope radar_range` enumerates known in-sector stations that are radar-visible or within the player ship radar radius, reads each station via the same `GetTradeList(station, ship)` path, and tags each normalized offer with station identity plus distance.
 
 The docked-station reader sends `intent:"trade_in_sector"`; Lua emits `schema:"trade_offers_probe_v1"` with `offers_raw` / `nontrade_offers_raw`; Python maps observed fields (`ware`, `name`, `side`, `price`, `market_price`, `amount`, `station`, `faction`) while keeping the full raw offer under `raw`. Radar-range emits `schema:"trade_offers_radar_v1"`, `source:"x4_lua_live_pipe"`, `stations_raw[]`, and per-offer `distance_m`/`distance_km`; Python normalizes each station offer through the same `_normalize_trade_offer` path and preserves both offer raw and station raw.
 
-The faction-state reader sends `intent:"faction_state"`; Lua emits `schema:"faction_state_v1"`, `source:"x4_lua_live_pipe"`, `standings_raw[]`, and `events_raw[]`. Standings use the game's UI relation integer (`GetUIRelation(faction.id)`, expected -30..+30), faction id/name/shortname from `GetLibrary("factions")`/`GetFactionData`, rank/title evidence from held ceremony licences when present, and preserve each raw standing. Python derives the current `rank_title` from the standing threshold (`ceremonyfriend` at +10, `ceremonyally` at +20) and keeps Lua's raw rank guess as `rank_title_raw`. Events use diplomacy event definitions/operations where available and preserve full raw event operations. Python normalizes to per-faction `faction_standing` rows and event rows (`relation_change`/`combat`/`promotion`/`territory`/`diplomacy`) while keeping `raw`. Runtime mode still requires a direct fresh `trigger:"fetch_response"`; timeout/transport failure raises an error and never falls back to JSONL.
+The faction-state reader sends `intent:"faction_state"`; Lua emits `schema:"faction_state_v1"`, `source:"x4_lua_live_pipe"`, `standings_raw[]`, and `events_raw[]`. Standings use the game's UI relation integer (`GetUIRelation(faction.id)`, expected -30..+30), faction id/name/shortname from `GetLibrary("factions")`/`GetFactionData`, rank/title evidence from held ceremony licences when present, and preserve each raw standing. Python derives the current `rank_title` from the standing threshold (`ceremonyfriend` at +10, `ceremonyally` at +20) and keeps Lua's raw licence-order guess as `rank_title_raw`. Live VIG validation after promotion showed why: `standing:10`/`Friend` with `ceremonyfriend:Syndicate Enforcer` and also `ceremonyally:Capo`; the raw last-rank guess can say `Capo` even though the standing-gated current rank is `Syndicate Enforcer`. Events use diplomacy event definitions/operations where available and preserve full raw event operations. Python normalizes to per-faction `faction_standing` rows and event rows (`relation_change`/`combat`/`promotion`/`territory`/`diplomacy`) while keeping `raw`.
+
+The sector-objects reader sends `intent:"sector_objects"`; Lua emits `schema:"sector_objects_v1"`, `source:"x4_lua_live_pipe"`, and `objects_raw[]`. It reuses the radar trade station enumeration (`GetContainedStations(sector, true)`) for stations and uses verified live APIs `GetGates(sector)` plus `GetContainedShips(sector, true)` for gates and notable ships. Each included object must have a distance from the player ship position (`distance_m`, normalized `dist_km`), id/name/type/class, optional owner/faction/idcode, and full `raw`. `kinds` is load-bearing: `--kinds station,gate` is forwarded in the fetch request and filtered in Lua, then defensively re-filtered in Python. Payload discipline: total cap 160 objects; per-kind caps are station 64, gate 16, ship 40, collectable 32, wreck 32; generic mass traffic/docked ships are skipped. Runtime mode still requires a direct fresh `trigger:"fetch_response"`; timeout/transport failure raises an error and never falls back to JSONL. Collectable/wreck widening is still pending an observed live API; `GetContainedObjects` is not available as a global in this Lua environment.
 
 Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot` or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 
@@ -160,7 +164,7 @@ X4_COPILOT_RAW_TELEMETRY_LOG=var/live_telemetry_raw.jsonl \
 uv run --extra mcp x4-copilot-mcp
 ```
 
-Docked/radar-range trade and faction state are available through runtime live pipe mode. Sector-object tools remain mock/stale until their Lua read paths exist. The mixed live/mock surface reports provenance per result, so Hermes can see which tools are real.
+Docked/radar-range trade, faction state, and sector objects are available through runtime live pipe mode. The mixed live/mock surface reports provenance per result, so Hermes can see which tools are real.
 
 ## Why MCP over direct Hermes tool now?
 
@@ -168,9 +172,8 @@ The handoff's risk was that Hermes might not consume MCP. Verified current Herme
 
 ## Not implemented yet
 
-- Radar-range/multi-station live X4 trade reads.
-- Live X4 faction-state and sector-object Lua reads.
-- Direct request/response pipe-backed `TelemetryFetcher` support beyond ambient, ship-status, and docked-station trade.
+- Wider live validation across sectors plus a verified live collectable/wreck enumeration API.
+- Expanded rank derivation beyond standard faction ceremony licence tiers.
 - Reflex STT/TTS path.
 - Hermes memory feed for reflex Q/A.
 - Mutating actions (`set_waypoint`, `mark_target`).
