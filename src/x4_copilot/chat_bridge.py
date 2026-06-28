@@ -115,7 +115,16 @@ class ChatPipeBridge:
         self._transport.close()
 
     def handle_message(self, raw: str) -> None:
-        message = parse_json_message(raw)
+        stripped = str(raw or "").strip()
+        if stripped in {"", "ERROR", "TIMEOUT", "CANCELLED"}:
+            # SirNukes read callbacks can surface transient pipe status strings.
+            # They are not protocol messages and must not crash the persistent bridge.
+            return
+        try:
+            message = parse_json_message(stripped)
+        except PayloadError as exc:
+            self._write_json({"type": "protocol_error", "error": str(exc)})
+            return
         msg_type = message.get("type")
         if msg_type == "ping":
             self._write_json({"type": "pong"})

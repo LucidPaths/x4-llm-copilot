@@ -81,6 +81,17 @@ def test_chat_bridge_routes_chat_request_by_correlation_id() -> None:
     assert responses == [{"type": "chat_response", "id": "x4chat-1", "text": "answer for what's selling near me?: trade_in_sector"}]
 
 
+def test_chat_bridge_ignores_transient_pipe_status_strings() -> None:
+    transport = FakeTransport()
+    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
+
+    bridge.handle_message("ERROR")
+    bridge.handle_message("TIMEOUT")
+    bridge.handle_message("")
+
+    assert transport.writes == []
+
+
 def test_chat_bridge_times_out_fail_closed_without_stale_answer() -> None:
     transport = FakeTransport()
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
