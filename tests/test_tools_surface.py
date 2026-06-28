@@ -14,6 +14,7 @@ from x4_copilot.tools import (
     create_live_raw_log_tool_surface,
     create_mock_tool_surface,
     telemetry_payload_from_raw_ambient,
+    telemetry_payload_from_raw_faction_state,
     telemetry_payload_from_raw_trade,
 )
 
@@ -64,21 +65,56 @@ def test_provenance_does_not_sniff_as_of_text():
     assert result["stale"] is False
 
 
-def test_faction_state_accepts_itemized_live_shape_not_only_nested_fixture_shape():
-    def itemized_fetcher(request: FetchRequest) -> TelemetryPayload:
-        return TelemetryPayload(
-            intent=request.intent,
-            ambient=AmbientContext(sector="Frontier Edge"),
-            data=[
-                {"kind": "relation", "faction": "Argon Federation", "standing": 10, "trend": "rising"},
-                {"type": "combat", "summary": "Xenon raid repelled", "age_min": 3},
-            ],
-        )
+def test_faction_state_normalizes_observed_live_raw_shape_and_preserves_raw():
+    raw = {
+        "type": "telemetry_raw",
+        "intent": "faction_state",
+        "source": "x4_lua_live_pipe",
+        "schema": "faction_state_v1",
+        "trigger": "fetch_response",
+        "standings_raw": [
+            {
+                "faction": "loanshark",
+                "faction_name": "Vigor Syndicate",
+                "faction_shortname": "VIG",
+                "standing": 10,
+                "relation_name": "Friend",
+                "rank_title": "Syndicate Enforcer",
+                "licences_raw": [{"type": "ceremonyfriend", "name": "Syndicate Enforcer", "isrank": True}],
+            }
+        ],
+        "events_raw": [
+            {
+                "kind": "diplomacy",
+                "eventid": "promotion_loanshark",
+                "event_name": "Syndicate Enforcer promotion",
+                "faction": "loanshark",
+                "outcome": "promoted",
+                "active": False,
+            }
+        ],
+    }
 
-    result = X4ToolSurface(itemized_fetcher).fetch_faction_state()
+    payload = telemetry_payload_from_raw_faction_state(raw)
+    result = X4ToolSurface(lambda request: payload, provenance=FetchProvenance(source="x4_lua_live_pipe")).fetch_faction_state()
 
-    assert result["relations"] == [{"kind": "relation", "faction": "Argon Federation", "standing": 10, "trend": "rising"}]
-    assert result["events"] == [{"type": "combat", "summary": "Xenon raid repelled", "age_min": 3}]
+    assert result["relations"] == [
+        {
+            "kind": "faction_standing",
+            "faction": "loanshark",
+            "faction_name": "Vigor Syndicate",
+            "faction_shortname": "VIG",
+            "standing": 10,
+            "relation_name": "Friend",
+            "rank_title": "Syndicate Enforcer",
+            "rank_title_raw": "Syndicate Enforcer",
+            "licences_raw": [{"type": "ceremonyfriend", "name": "Syndicate Enforcer", "isrank": True}],
+            "raw": raw["standings_raw"][0],
+        }
+    ]
+    assert result["events"][0]["kind"] == "promotion"
+    assert result["events"][0]["faction"] == "loanshark"
+    assert result["events"][0]["raw"] == raw["events_raw"][0]
 
 
 def test_ambient_context_uses_dedicated_fetch_intent():

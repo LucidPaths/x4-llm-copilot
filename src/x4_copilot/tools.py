@@ -128,7 +128,7 @@ class LivePipeTelemetryFetcher:
     """
 
     provenance = FetchProvenance(source="x4_lua_live_pipe", stale=False)
-    supported_intents = frozenset({"ambient_context", "ship_status", "trade_in_sector"})
+    supported_intents = frozenset({"ambient_context", "ship_status", "trade_in_sector", "faction_state"})
 
     def __init__(
         self,
@@ -147,7 +147,7 @@ class LivePipeTelemetryFetcher:
 
     def __call__(self, request: FetchRequest) -> TelemetryPayload:
         if request.intent not in self.supported_intents:
-            raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status/trade_in_sector, got {request.intent}")
+            raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status/trade_in_sector/faction_state, got {request.intent}")
         if request.intent == "trade_in_sector":
             requested_scope = request.args.get("scope")
             if requested_scope is None and "radar_only" in request.args:
@@ -159,6 +159,8 @@ class LivePipeTelemetryFetcher:
         raw = self._read_raw_fetch_response()
         if request.intent == "trade_in_sector":
             return telemetry_payload_from_raw_trade(raw)
+        if request.intent == "faction_state":
+            return telemetry_payload_from_raw_faction_state(raw)
         payload = telemetry_payload_from_raw_ambient(raw)
         if request.intent == "ship_status":
             return TelemetryPayload(intent="ship_status", ambient=payload.ambient, data=payload.data, as_of="fresh live pipe response")
@@ -318,6 +320,110 @@ def telemetry_payload_from_raw_trade(raw: dict[str, Any]) -> TelemetryPayload:
         data=data,
         as_of="fresh live raw Lua trade probe",
     )
+
+
+def telemetry_payload_from_raw_faction_state(raw: dict[str, Any]) -> TelemetryPayload:
+    if raw.get("type") != "telemetry_raw":
+        raise PayloadError("raw faction telemetry type must be telemetry_raw")
+    if raw.get("intent") != "faction_state":
+        raise PayloadError("raw faction telemetry intent must be faction_state")
+    if raw.get("source") != "x4_lua_live_pipe":
+        raise PayloadError("raw faction telemetry source must be x4_lua_live_pipe")
+    if raw.get("schema") != "faction_state_v1":
+        raise PayloadError("raw faction telemetry schema must be faction_state_v1")
+    if raw.get("error"):
+        raise PayloadError(f"raw faction telemetry error: {raw.get('error')}")
+
+    data = _normalize_faction_state_payload(raw)
+    return TelemetryPayload(
+        intent="faction_state",
+        ambient=AmbientContext(),
+        data=data,
+        as_of="fresh live raw Lua faction probe",
+    )
+
+
+def _normalize_faction_state_payload(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    data: list[dict[str, Any]] = []
+    standings_raw = raw.get("standings_raw")
+    if isinstance(standings_raw, list):
+        for standing in standings_raw:
+            data.append(_normalize_faction_standing(standing))
+    elif standings_raw is not None:
+        data.append({"kind": "faction_standings_raw", "standings_raw": standings_raw})
+
+    events_raw = raw.get("events_raw")
+    if isinstance(events_raw, list):
+        for event in events_raw:
+            data.append(_normalize_faction_event(event))
+    elif events_raw is not None:
+        data.append({"kind": "faction_events_raw", "events_raw": events_raw})
+
+    if not data:
+        data.append({"kind": "faction_state_metadata", "standings_raw": [], "events_raw": []})
+    return data
+
+
+def _normalize_faction_standing(standing: Any) -> dict[str, Any]:
+    if not isinstance(standing, dict):
+        return {"kind": "faction_standing_raw", "raw": standing}
+    standing_value = _optional_raw_int(standing.get("standing"), "standing")
+    licences_raw = standing.get("licences_raw") if standing.get("licences_raw") is not None else []
+    return {
+        "kind": "faction_standing",
+        "faction": _optional_raw_str(standing.get("faction")),
+        "faction_name": _optional_raw_str(standing.get("faction_name")),
+        "faction_shortname": _optional_raw_str(standing.get("faction_shortname")),
+        "standing": standing_value,
+        "relation_name": _optional_raw_str(standing.get("relation_name")),
+        "rank_title": _current_rank_title(standing_value, licences_raw) or _optional_raw_str(standing.get("rank_title")),
+        "rank_title_raw": _optional_raw_str(standing.get("rank_title")),
+        "licences_raw": licences_raw,
+        "raw": standing,
+    }
+
+
+def _current_rank_title(standing: int | None, licences_raw: Any) -> str | None:
+    if standing is None or not isinstance(licences_raw, list):
+        return None
+    preferred_type = "ceremonyally" if standing >= 20 else "ceremonyfriend" if standing >= 10 else None
+    if preferred_type is None:
+        return None
+    for licence in licences_raw:
+        if isinstance(licence, dict) and licence.get("type") == preferred_type:
+            return _optional_raw_str(licence.get("name"))
+    return None
+
+
+def _normalize_faction_event(event: Any) -> dict[str, Any]:
+    if not isinstance(event, dict):
+        return {"kind": "faction_event_raw", "raw": event}
+    event_kind = str(event.get("kind") or "diplomacy")
+    summary = event.get("event_name") or event.get("event_desc") or event.get("outcome") or event.get("summary")
+    return {
+        "kind": _classify_faction_event_kind(event),
+        "faction": _optional_raw_str(event.get("faction")),
+        "otherfaction": _optional_raw_str(event.get("otherfaction")),
+        "summary": _optional_raw_str(summary),
+        "event_id": _optional_raw_str(event.get("eventid")),
+        "active": bool(event.get("active")),
+        "age_s": _optional_raw_number(event.get("age_s"), "age_s"),
+        "raw_kind": event_kind,
+        "raw": event,
+    }
+
+
+def _classify_faction_event_kind(event: dict[str, Any]) -> str:
+    text = " ".join(str(event.get(key) or "") for key in ("eventid", "event_name", "event_desc", "outcome", "kind")).lower()
+    if "promot" in text or "rank" in text or "licence" in text or "license" in text:
+        return "promotion"
+    if "territor" in text or "sector" in text or "claim" in text:
+        return "territory"
+    if "combat" in text or "war" in text or "attack" in text:
+        return "combat"
+    if "relation" in text or "diplomacy" in text:
+        return "relation_change"
+    return "diplomacy"
 
 
 def _normalize_docked_trade_payload(raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -669,32 +775,24 @@ def _merge_mapping_items(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _extract_faction_state(items: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Accept nested fixture shape and likely live itemized shapes.
-
-    The live Lua/MD reader is not validated yet, so do not force all data into
-    ``data[0].relations``. Accept both:
-    - [{"relations": [...], "events": [...]}]
-    - [{"kind": "relation", ...}, {"kind": "event", ...}]
-    - [{"type": "relation", ...}, {"type": "combat", ...}]
-    """
-
     relations: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     for item in items:
-        nested_relations = item.get("relations")
-        nested_events = item.get("events")
-        if isinstance(nested_relations, list):
-            relations.extend(_dict_items(nested_relations))
-        if isinstance(nested_events, list):
-            events.extend(_dict_items(nested_events))
-        if isinstance(nested_relations, list) or isinstance(nested_events, list):
-            continue
-
-        item_kind = str(item.get("kind") or item.get("type") or "").lower()
-        if item_kind == "relation" or "standing" in item or ("faction" in item and "trend" in item):
+        item_kind = str(item.get("kind") or "").lower()
+        if item_kind == "faction_standing":
             relations.append(item)
-        elif item_kind in {"event", "combat", "diplomacy", "news"} or "summary" in item:
+        elif item_kind in {"relation_change", "combat", "promotion", "territory", "diplomacy", "faction_event_raw"}:
             events.append(item)
+        elif item_kind == "faction_state_metadata":
+            continue
+        else:
+            # Mock fixture compatibility only; live faction_state_v1 is normalized above.
+            nested_relations = item.get("relations")
+            nested_events = item.get("events")
+            if isinstance(nested_relations, list):
+                relations.extend(_dict_items(nested_relations))
+            if isinstance(nested_events, list):
+                events.extend(_dict_items(nested_events))
     return relations, events
 
 

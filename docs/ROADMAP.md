@@ -18,7 +18,7 @@
 - Added mock fixtures for all read intents, including dedicated `ambient_context`.
 - Added `x4-copilot-mcp`: optional stdio MCP wrapper for Hermes and other MCP clients.
 - Added structured provenance (`source`, `stale`) without parsing `as_of` display text.
-- Added flexible faction-state extraction for nested fixture and itemized live-shaped payloads.
+- Added the original fixture-backed faction-state extraction; live normalization later replaced the speculative dual-shape tolerance with the observed `faction_state_v1` raw shape.
 - Added action stubs that refuse by default and never mutate game state.
 - Added committed MCP SDK/client-path tests and CI smoke coverage.
 - Documented the initial hard boundary: Hermes path was mock-backed until live Lua/MD telemetry reads were validated.
@@ -37,7 +37,8 @@
 - Verified live on-demand ambient smoke from the running game: `uv run --extra winpipe x4-copilot tool ambient --source live-pipe --timeout 60` returned `source:"x4_lua_live_pipe"`, `stale:false`, sector `Windfall I Union Summit`, credits `39482`, ship `Raleigh (Container)`.
 - Added a delayed MD retry cue for startup/read-loop errors so missing pipe servers do not permanently dead-end the request loop. Current live caveat: after several reload/retry cycles, duplicate retry loop instances can still exist until the game is restarted; the live fetch path works regardless.
 - Added bounded `scope:"radar_range"` multi-station trade reads (`trade_offers_radar_v1`): Lua enumerates known in-sector stations, filters to radar-visible/within player radar radius, caps at 32 stations / 20 offers per station / 200 offers total, emits station distance in meters and km, and Python normalizes offers through the existing trade-offer mapper while preserving raw station/offer payloads.
-- Remaining in v0.2: broader trade-shape validation across more stations, sector objects, faction relation snapshots, and cleanup of duplicate idle retry loop instances.
+- Added raw-first live faction-state reads (`faction_state_v1`): Lua captures `GetUIRelation` player↔faction standings plus faction ids/names/rank licence evidence and diplomacy event operations; Python normalizes observed standings/events while preserving raw payloads.
+- Remaining in v0.2: broader trade-shape validation across more stations, sector objects, broader faction-event source validation beyond diplomacy operations, and cleanup of duplicate idle retry loop instances.
 - Future density optimization: radar-range normalized offers currently preserve each offer's raw object and duplicate the containing `station_raw` block per offer. Keep this while capped payloads are small; if dense-sector payload/context weight becomes a problem, split output into a deduped `stations[]` block and have offers reference a station index.
 
 ## v0.3 — brain integration

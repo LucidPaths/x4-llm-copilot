@@ -149,7 +149,7 @@ Map onto Mantella's existing Action interface (define X4 equivalents: `set_waypo
 | Intent (router output) | Adapter fetch |
 |---|---|
 | `trade_in_sector` | trade offers; live implementation supports `docked_station` plus bounded `radar_range` multi-station reads |
-| `faction_state` | current faction relations + recent combat/diplomacy events |
+| `faction_state` | live player↔faction standings (`faction_state_v1`) plus raw-preserved diplomacy/event operations when available |
 | `ship_status` | hull/shield/cargo/credits/fuel of player ship |
 | `sector_objects` | stations/gates/lockboxes/wrecks in current sector |
 

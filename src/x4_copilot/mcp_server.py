@@ -41,7 +41,7 @@ def build_mcp_server():
 
     @mcp.tool()
     def fetch_faction_state(since: str | None = None) -> dict[str, Any]:
-        """Return structured faction relations/events."""
+        """Return structured faction standings/events. Live pipe emits faction_state_v1 with raw preservation."""
         return surface.fetch_faction_state(since=since)
 
     @mcp.tool()

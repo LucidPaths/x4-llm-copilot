@@ -12,6 +12,46 @@ ffi.cdef[[
     UniverseID GetPlayerID(void);
     UniverseID GetPlayerOccupiedShipID(void);
     Coord3D GetObjectPositionInSector(UniverseID componentid);
+    typedef uint64_t OperationID;
+    typedef struct {
+        const char* name;
+        const char* colorid;
+    } RelationRangeInfo;
+    typedef struct {
+        const char* id;
+        const char* name;
+        const char* desc;
+        const char* shortdesc;
+        const char* iconid;
+        const char* imageid;
+        double duration;
+        uint32_t numoptions;
+    } DiplomacyEventInfo;
+    typedef struct {
+        OperationID id;
+        OperationID sourceactionoperationid;
+        const char* eventid;
+        UniverseID agentid;
+        const char* agentname;
+        const char* agentimageid;
+        const char* agentresultstate;
+        int32_t agentexp_negotiation;
+        int32_t agentexp_espionage;
+        const char* faction;
+        const char* otherfaction;
+        const char* option;
+        const char* outcome;
+        double starttime;
+        bool read;
+        int32_t startrelation;
+    } DiplomacyEventOperation;
+    const char* GetComponentName(UniverseID componentid);
+    double GetCurrentGameTime(void);
+    RelationRangeInfo GetUIRelationName(const char* fromfactionid, const char* tofactionid);
+    uint32_t GetDiplomacyEvents(DiplomacyEventInfo* result, uint32_t resultlen);
+    uint32_t GetNumDiplomacyEvents();
+    uint32_t GetDiplomacyEventOperations(DiplomacyEventOperation* result, uint32_t resultlen, bool active);
+    uint32_t GetNumDiplomacyEventOperations(bool active);
 ]]
 
 local L = {}
@@ -361,6 +401,137 @@ local function emit_trade_radar(trigger)
     AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
 end
 
+local function emit_faction_state(trigger)
+    trigger = trigger or "unspecified"
+    local ok, payload = pcall(function()
+        local factions = GetLibrary("factions") or {}
+        local standings = {}
+        for _, faction in ipairs(factions) do
+            if faction.id and faction.id ~= "player" then
+                local relation_ok, standing = pcall(function() return GetUIRelation(faction.id) end)
+                local relation_name = nil
+                local relation_color = nil
+                local relation_raw_ok, relation_raw = pcall(function() return C.GetUIRelationName("player", faction.id) end)
+                if relation_raw_ok and relation_raw ~= nil then
+                    relation_name = ffi.string(relation_raw.name)
+                    relation_color = ffi.string(relation_raw.colorid)
+                end
+                local shortname, isdiplomacyactive, isrelationlocked, relationlockshortreason = GetFactionData(faction.id, "shortname", "isdiplomacyactive", "isrelationlocked", "relationlockshortreason")
+                local licences = {}
+                local rank_title = nil
+                local own_ok, own_licences = pcall(function() return GetOwnLicences(faction.id) end)
+                if own_ok and type(own_licences) == "table" then
+                    for _, licence in ipairs(own_licences) do
+                        local item = {
+                            type = licence.type,
+                            name = licence.name,
+                            isrank = (licence.type == "ceremonyfriend" or licence.type == "ceremonyally")
+                        }
+                        table.insert(licences, item)
+                        if item.isrank and item.name and item.name ~= "" then
+                            rank_title = item.name
+                        end
+                    end
+                end
+                table.insert(standings, {
+                    faction = faction.id,
+                    faction_name = faction.name,
+                    faction_shortname = shortname or faction.shortname,
+                    standing = relation_ok and standing or nil,
+                    relation_name = relation_name,
+                    relation_color = relation_color,
+                    rank_title = rank_title,
+                    licences_raw = licences,
+                    isdiplomacyactive = isdiplomacyactive,
+                    isrelationlocked = isrelationlocked,
+                    relationlockshortreason = relationlockshortreason
+                })
+            end
+        end
+
+        local events = {}
+        local event_defs = {}
+        local defs_ok, event_count = pcall(function() return C.GetNumDiplomacyEvents() end)
+        if defs_ok and event_count and event_count > 0 then
+            local event_buf = ffi.new("DiplomacyEventInfo[?]", event_count)
+            event_count = C.GetDiplomacyEvents(event_buf, event_count)
+            for i = 0, event_count - 1 do
+                local event_id = ffi.string(event_buf[i].id)
+                event_defs[event_id] = {
+                    id = event_id,
+                    name = ffi.string(event_buf[i].name),
+                    desc = ffi.string(event_buf[i].desc),
+                    shortdesc = ffi.string(event_buf[i].shortdesc),
+                    duration = event_buf[i].duration
+                }
+            end
+        end
+        local now_ok, now = pcall(function() return C.GetCurrentGameTime() end)
+        local function append_event_operation(active)
+            local count = C.GetNumDiplomacyEventOperations(active)
+            if count and count > 0 then
+                local op_buf = ffi.new("DiplomacyEventOperation[?]", count)
+                count = C.GetDiplomacyEventOperations(op_buf, count, active)
+                for i = 0, count - 1 do
+                    local event_id = ffi.string(op_buf[i].eventid)
+                    local def = event_defs[event_id] or {}
+                    table.insert(events, {
+                        kind = "diplomacy",
+                        eventid = event_id,
+                        event_name = def.name,
+                        event_desc = def.shortdesc or def.desc,
+                        operation_id = tostring(op_buf[i].id),
+                        source_operation_id = tostring(op_buf[i].sourceactionoperationid),
+                        faction = ffi.string(op_buf[i].faction),
+                        otherfaction = ffi.string(op_buf[i].otherfaction),
+                        option = ffi.string(op_buf[i].option),
+                        outcome = ffi.string(op_buf[i].outcome),
+                        agentname = (op_buf[i].agentid ~= 0) and ffi.string(C.GetComponentName(op_buf[i].agentid)) or ffi.string(op_buf[i].agentname),
+                        agentresultstate = ffi.string(op_buf[i].agentresultstate),
+                        starttime = op_buf[i].starttime,
+                        age_s = (now_ok and now) and (now - op_buf[i].starttime) or nil,
+                        read = op_buf[i].read,
+                        active = active,
+                        startrelation = op_buf[i].startrelation
+                    })
+                end
+            end
+        end
+        local ops_ok, ops_error = pcall(function()
+            append_event_operation(true)
+            append_event_operation(false)
+        end)
+        if not ops_ok then
+            table.insert(events, { kind = "event_read_error", summary = tostring(ops_error) })
+        end
+
+        return "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"faction_state",'
+            .. '"source":"x4_lua_live_pipe",'
+            .. '"schema":"faction_state_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"standing_scale":"X4 UI relation integer, expected -30..+30",'
+            .. '"standings_raw":' .. json_value(standings) .. ','
+            .. '"events_raw":' .. json_value(events)
+            .. "}"
+    end)
+
+    if not ok then
+        payload = "{"
+            .. '"type":"telemetry_raw",'
+            .. '"intent":"faction_state",'
+            .. '"source":"x4_lua_live_pipe",'
+            .. '"schema":"faction_state_v1",'
+            .. '"trigger":' .. json_string(trigger) .. ','
+            .. '"error":' .. json_string(payload)
+            .. "}"
+    end
+
+    DebugError("X4 LLM Copilot Lua faction payload: " .. payload)
+    AddUITriggeredEvent("X4LLMCopilot", "AmbientRaw", payload)
+end
+
 local function emit_trade(trigger, scope)
     if scope == "radar_range" then
         emit_trade_radar(trigger)
@@ -381,6 +552,8 @@ function L.Init()
         local intent = request_intent(request_json)
         if intent == "trade_in_sector" then
             emit_trade("fetch_response", request_scope(request_json))
+        elseif intent == "faction_state" then
+            emit_faction_state("fetch_response")
         else
             emit_ambient("fetch_response")
         end
