@@ -6,7 +6,6 @@ import queue
 import subprocess
 import threading
 import time
-import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -300,6 +299,4 @@ def _display_safe_text(text: str) -> str:
     safe = str(text or "")
     for old, new in replacements.items():
         safe = safe.replace(old, new)
-    safe = unicodedata.normalize("NFKD", safe)
-    safe = safe.encode("ascii", "replace").decode("ascii")
     return safe

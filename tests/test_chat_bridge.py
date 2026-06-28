@@ -141,7 +141,7 @@ def test_chat_bridge_defaults_unknown_chat_to_live_ambient_fetch() -> None:
 
 class CurlyResponder:
     def answer(self, question: str, payload: TelemetryPayload) -> str:
-        return "you’re in range — don’t panic…"
+        return "you’re in Président’s range — don’t panic…"
 
 
 def test_chat_bridge_normalizes_response_text_for_x4_chat_display() -> None:
@@ -169,7 +169,7 @@ def test_chat_bridge_normalizes_response_text_for_x4_chat_display() -> None:
     bridge.wait_for_workers(timeout_s=1.0)
 
     responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
-    assert responses == [{"type": "chat_response", "id": "x4chat-ascii", "text": "you're in range - don't panic..."}]
+    assert responses == [{"type": "chat_response", "id": "x4chat-ascii", "text": "you're in Président's range - don't panic..."}]
 
 
 
