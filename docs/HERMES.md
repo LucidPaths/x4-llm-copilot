@@ -101,6 +101,9 @@ Verified live smoke from the running game:
 ```bash
 uv run --extra winpipe x4-copilot tool ambient --source live-pipe --timeout 60
 # {"sector":"Windfall I Union Summit", "credits":39482, "ship":"Raleigh (Container)", "source":"x4_lua_live_pipe", "stale":false, ...}
+
+uv run --extra winpipe x4-copilot tool trade --source live-pipe --timeout 60
+# VIG Ice Refinery I live offers: buy energycells/foodrations/ice/medicalsupplies; sell water amount=75763 price=30.8 market_price=32.42
 ```
 
 Known live caveat: repeated UI/game reloads can leave multiple idle retry-loop instances until a clean game restart. This can add duplicate `request read failed; retrying after delay` log lines when no pipe server is present, but on-demand live fetches still complete and return fresh `fetch_response` payloads.
@@ -113,7 +116,7 @@ uv run --extra winpipe x4-copilot tool ship --source live-pipe
 uv run --extra winpipe x4-copilot tool trade --source live-pipe
 ```
 
-`tool trade --source live-pipe` is deliberately raw-first. It sends `intent:"trade_in_sector"`; Lua emits `schema:"trade_offers_probe_v1"` with `offers_raw` / `nontrade_offers_raw`; Python preserves each raw offer as `kind:"trade_offer_raw"` instead of locking field names before live inspection.
+`tool trade --source live-pipe` is raw-first and now normalized from observed live bytes. It sends `intent:"trade_in_sector"`; Lua emits `schema:"trade_offers_probe_v1"` with `offers_raw` / `nontrade_offers_raw`; Python maps observed fields (`ware`, `name`, `side`, `price`, `market_price`, `amount`, `station`, `faction`) while keeping the full raw offer under `raw`.
 
 Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot` or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 

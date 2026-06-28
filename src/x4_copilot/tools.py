@@ -302,7 +302,7 @@ def telemetry_payload_from_raw_trade(raw: dict[str, Any]) -> TelemetryPayload:
     data: list[dict[str, Any]] = []
     if isinstance(offers_raw, list):
         for offer in offers_raw:
-            data.append({"kind": "trade_offer_raw", "offer_raw": offer})
+            data.append(_normalize_trade_offer(offer))
     elif offers_raw is not None:
         data.append({"kind": "trade_offers_raw", "offers_raw": offers_raw})
     if nontrade_raw not in (None, []):
@@ -329,6 +329,32 @@ def telemetry_payload_from_raw_trade(raw: dict[str, Any]) -> TelemetryPayload:
         data=data,
         as_of="fresh live raw Lua trade probe",
     )
+
+
+def _normalize_trade_offer(offer: Any) -> dict[str, Any]:
+    if not isinstance(offer, dict):
+        return {"kind": "trade_offer_raw", "offer_raw": offer}
+    side = "buy" if offer.get("isbuyoffer") else "sell" if offer.get("isselloffer") else "unknown"
+    return {
+        "kind": "trade_offer",
+        "id": _optional_raw_str(offer.get("id")),
+        "ware": _optional_raw_str(offer.get("ware")),
+        "name": _optional_raw_str(offer.get("name")),
+        "side": side,
+        "price": _optional_raw_number(offer.get("price"), "price"),
+        "market_price": _optional_raw_number(offer.get("marketprice"), "marketprice"),
+        "amount": _optional_raw_int(offer.get("amount"), "amount"),
+        "min_amount": _optional_raw_int(offer.get("minamount"), "minamount"),
+        "desired_amount": _optional_raw_int(offer.get("desiredamount"), "desiredamount"),
+        "station_id": _optional_raw_str(offer.get("station")),
+        "station": _optional_raw_str(offer.get("stationname")),
+        "station_sector_id": _optional_raw_str(offer.get("stationsectorid")),
+        "faction": _optional_raw_str(offer.get("factionname")),
+        "is_supply": bool(offer.get("issupply")),
+        "is_shady": bool(offer.get("isshady")),
+        "is_mission": bool(offer.get("ismissionoffer")),
+        "raw": offer,
+    }
 
 
 def _optional_raw_str(value: Any) -> str | None:

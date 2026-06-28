@@ -33,10 +33,10 @@
 - Verified `ambient_probe_v2` cargo shape: empty hold can be `[]`; non-empty hold is an object mapping ware ID to quantity, e.g. `{"water": 6}`.
 - Added `RawTelemetryLogFetcher` and MCP/CLI wiring for live raw ambient/ship-status reads from `var/live_telemetry_raw.jsonl`; this is now documented as development/debug replay only.
 - Added runtime on-demand live pipe mode (`--source live-pipe` / `X4_COPILOT_TELEMETRY_SOURCE=live_pipe`) that sends a `fetch` request, requires a fresh `trigger:"fetch_response"`, stamps `source:"x4_lua_live_pipe"`, and fails closed instead of replaying stale JSONL. The fetch-response wait has a wall-clock deadline, so reload-probe churn cannot livelock the call.
-- Added raw-first live trade probe routing: MD passes the fetch JSON into Lua, Lua branches on `intent:"trade_in_sector"`, emits `schema:"trade_offers_probe_v1"`, and Python preserves `offers_raw` / `nontrade_offers_raw` without locking field names before live bytes are inspected.
+- Added raw-first live trade probe routing: MD passes the fetch JSON into Lua, Lua branches on `intent:"trade_in_sector"`, emits `schema:"trade_offers_probe_v1"`, and Python preserves `offers_raw` / `nontrade_offers_raw`. Live bytes at `VIG Ice Refinery I` confirmed a list of offer objects; Python now normalizes observed fields while preserving each full raw offer under `raw`.
 - Verified live on-demand ambient smoke from the running game: `uv run --extra winpipe x4-copilot tool ambient --source live-pipe --timeout 60` returned `source:"x4_lua_live_pipe"`, `stale:false`, sector `Windfall I Union Summit`, credits `39482`, ship `Raleigh (Container)`.
 - Added a delayed MD retry cue for startup/read-loop errors so missing pipe servers do not permanently dead-end the request loop. Current live caveat: after several reload/retry cycles, duplicate retry loop instances can still exist until the game is restarted; the live fetch path works regardless.
-- Remaining in v0.2: live validation of trade raw shape and normalized trade-offer mapping, sector objects, faction relation snapshots, and cleanup of duplicate idle retry loop instances.
+- Remaining in v0.2: broader trade-shape validation across more stations, sector objects, faction relation snapshots, and cleanup of duplicate idle retry loop instances.
 
 ## v0.3 — brain integration
 

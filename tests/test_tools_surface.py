@@ -263,8 +263,46 @@ def test_raw_trade_probe_preserves_offer_shape_before_schema_lock():
     assert payload.intent == "trade_in_sector"
     assert payload.ambient == AmbientContext(sector="Windfall I Union Summit", ship="Raleigh (Container)", credits=39392)
     assert payload.data == [
-        {"kind": "trade_offer_raw", "offer_raw": {"ware": "water", "amount": 12, "price": 30, "isbuyoffer": True}},
-        {"kind": "trade_offer_raw", "offer_raw": {"ware": "energycells", "amount": 99, "price": 10, "isselloffer": True}},
+        {
+            "kind": "trade_offer",
+            "id": None,
+            "ware": "water",
+            "name": None,
+            "side": "buy",
+            "price": 30,
+            "market_price": None,
+            "amount": 12,
+            "min_amount": None,
+            "desired_amount": None,
+            "station_id": None,
+            "station": None,
+            "station_sector_id": None,
+            "faction": None,
+            "is_supply": False,
+            "is_shady": False,
+            "is_mission": False,
+            "raw": {"ware": "water", "amount": 12, "price": 30, "isbuyoffer": True},
+        },
+        {
+            "kind": "trade_offer",
+            "id": None,
+            "ware": "energycells",
+            "name": None,
+            "side": "sell",
+            "price": 10,
+            "market_price": None,
+            "amount": 99,
+            "min_amount": None,
+            "desired_amount": None,
+            "station_id": None,
+            "station": None,
+            "station_sector_id": None,
+            "faction": None,
+            "is_supply": False,
+            "is_shady": False,
+            "is_mission": False,
+            "raw": {"ware": "energycells", "amount": 99, "price": 10, "isselloffer": True},
+        },
     ]
 
 
@@ -372,7 +410,27 @@ def test_live_pipe_fetcher_routes_trade_request_to_raw_trade_payload(tmp_path):
     payload = fetcher(FetchRequest(intent="trade_in_sector", args={"radar_only": True}))
 
     assert payload.intent == "trade_in_sector"
-    assert payload.data == [{"kind": "trade_offer_raw", "offer_raw": {"ware": "water", "amount": 7, "price": 30}}]
+    assert payload.data[0] | {"raw": None} == {
+        "kind": "trade_offer",
+        "id": None,
+        "ware": "water",
+        "name": None,
+        "side": "unknown",
+        "price": 30,
+        "market_price": None,
+        "amount": 7,
+        "min_amount": None,
+        "desired_amount": None,
+        "station_id": None,
+        "station": None,
+        "station_sector_id": None,
+        "faction": None,
+        "is_supply": False,
+        "is_shady": False,
+        "is_mission": False,
+        "raw": None,
+    }
+    assert payload.data[0]["raw"] == {"ware": "water", "amount": 7, "price": 30}
     assert any('"intent": "trade_in_sector"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
 
 
