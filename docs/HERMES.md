@@ -130,7 +130,25 @@ The faction-state reader sends `intent:"faction_state"`; Lua emits `schema:"fact
 
 The sector-objects reader sends `intent:"sector_objects"`; Lua emits `schema:"sector_objects_v1"`, `source:"x4_lua_live_pipe"`, and `objects_raw[]`. It reuses the radar trade station enumeration (`GetContainedStations(sector, true)`) for stations and uses verified live APIs `GetGates(sector)` plus `GetContainedShips(sector, true)` for gates and notable ships. Each included object must have a distance from the player ship position (`distance_m`, normalized `dist_km`), id/name/type/class, optional owner/faction/idcode, and full `raw`. `kinds` is load-bearing: `--kinds station,gate` is forwarded in the fetch request and filtered in Lua, then defensively re-filtered in Python. Payload discipline: total cap 160 objects; per-kind caps are station 64, gate 16, ship 40, collectable 32, wreck 32; generic mass traffic/docked ships are skipped. Runtime mode still requires a direct fresh `trigger:"fetch_response"`; timeout/transport failure raises an error and never falls back to JSONL. Collectable/wreck widening is still pending an observed live API; `GetContainedObjects` is not available as a global in this Lua environment.
 
-Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot` or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
+### v0.3 cockpit chat bridge
+
+The first cockpit UI slice uses SirNukes `Chat_Window_API`, not `Simple_Menu_API`: Simple Menu can host edit boxes, but X4's chat window already provides the cockpit text input hotkey, scrollback, and print surface with less custom UI risk. The command is `/hermes <question>` in the in-game chat window; the bridge prints `thinking...` with a correlation id and later prints the matching answer or explicit timeout/error. This is text-in/text-out only. It does not call `set_waypoint`, `mark_target`, autopilot, or any game mutation.
+
+Protocol on the same `x4_llm_copilot` pipe now has two request classes plus probes:
+
+- Python-originated telemetry fetch: `{"type":"fetch", ...}` -> Lua `telemetry_raw` with `trigger:"fetch_response"`.
+- X4-originated cockpit chat: `{"type":"chat_request","id":"x4chat-N","text":"..."}` -> Python/Hermes -> `{"type":"chat_response","id":"x4chat-N","text":"..."}`.
+- Development probes/reload telemetry remain allowed but cannot satisfy a runtime fetch.
+
+Run the persistent chat bridge, not the one-shot `tool --source live-pipe` owner, when using cockpit chat:
+
+```bash
+uv run --extra winpipe x4-copilot serve-chat --pipe x4_llm_copilot --fetch-timeout 8 --chat-timeout 90
+```
+
+The bridge owns the single named-pipe server, serializes bridge-owned telemetry fetches, and routes chat responses by correlation id. A slow Hermes answer happens after the live telemetry snapshot is fetched, so it does not hold the telemetry fetch lock. If Python/Hermes is absent, the cockpit-side pending id times out and prints an explicit error instead of replaying an old answer.
+
+Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot`, `x4-copilot serve-chat --pipe x4_llm_copilot`, a one-shot live-pipe tool call, or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 
 Use on-demand live ambient in the MCP server:
 

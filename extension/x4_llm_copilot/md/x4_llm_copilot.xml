@@ -22,6 +22,28 @@
       </actions>
     </cue>
 
+    <cue name="Register_Chat_Command" instantiate="true">
+      <conditions>
+        <event_cue_signalled cue="md.Chat_Window_API.Reloaded" />
+      </conditions>
+      <actions>
+        <signal_cue_instantly cue="md.Chat_Window_API.Register_Command" param="table[
+          $name='/hermes',
+          $callback=Hermes_Chat_Command,
+          $echo=table[]]" />
+        <signal_cue_instantly cue="md.Chat_Window_API.Print" param="'Hermes cockpit chat ready. Use /hermes &lt;question&gt; in the X4 chat window.'" />
+      </actions>
+    </cue>
+
+    <cue name="Hermes_Chat_Command" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <actions>
+        <raise_lua_event name="'x4LLMCopilotChatCommand'" param="event.param.$terms" />
+      </actions>
+    </cue>
+
 
     <cue name="Start_Request_Read" instantiate="true">
       <conditions>
@@ -74,6 +96,51 @@
           $msg=event.param3,
           $cue=Ambient_Write_Callback,
           $time=5s]" />
+      </actions>
+    </cue>
+
+    <cue name="Chat_Request_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatRequest'" />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: chat request from Lua: %s'.[event.param3]" filter="general" />
+        <signal_cue_instantly cue="md.Named_Pipes.Write" param="table[
+          $pipe='x4_llm_copilot',
+          $msg=event.param3,
+          $cue=Chat_Write_Callback,
+          $time=5s]" />
+      </actions>
+    </cue>
+
+    <cue name="Chat_Write_Callback" instantiate="true">
+      <conditions>
+        <event_cue_signalled />
+      </conditions>
+      <actions>
+        <debug_text text="'X4 LLM Copilot: chat write result: %s'.[event.param]" filter="general" />
+        <do_if value="event.param != 'SUCCESS'">
+          <signal_cue_instantly cue="md.Chat_Window_API.Print" param="'Hermes chat error: pipe write failed: %s'.[event.param]" />
+        </do_if>
+      </actions>
+    </cue>
+
+    <cue name="Chat_Print_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatPrint'" />
+      </conditions>
+      <actions>
+        <signal_cue_instantly cue="md.Chat_Window_API.Print" param="event.param3" />
+      </actions>
+    </cue>
+
+    <cue name="Chat_Pending_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatPending'" />
+      </conditions>
+      <delay exact="90s" />
+      <actions>
+        <raise_lua_event name="'x4LLMCopilotChatTimeout'" param="event.param3" />
       </actions>
     </cue>
 

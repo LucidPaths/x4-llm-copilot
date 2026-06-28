@@ -790,9 +790,90 @@ local function request_intent(request_json)
     return intent or "ambient_context"
 end
 
+local chat_sequence = 0
+local pending_chat = {}
+
+local function json_field(message, field)
+    message = tostring(message or "")
+    return string.match(message, '"' .. field .. '"%s*:%s*"(([^"\\]|\\.)*)"')
+end
+
+local function unescape_json_string(value)
+    value = tostring(value or "")
+    value = string.gsub(value, '\\n', '\n')
+    value = string.gsub(value, '\
+', '
+')
+    value = string.gsub(value, '\\t', '\t')
+    value = string.gsub(value, '\\"', '"')
+    value = string.gsub(value, '\\\\', '\\')
+    return value
+end
+
+local function emit_chat_print(text)
+    AddUITriggeredEvent("X4LLMCopilot", "ChatPrint", tostring(text or ""))
+end
+
+local function emit_chat_request(text)
+    text = tostring(text or "")
+    if text == "" then
+        emit_chat_print("Hermes: empty question ignored.")
+        return
+    end
+    chat_sequence = chat_sequence + 1
+    local id = "x4chat-" .. tostring(chat_sequence)
+    pending_chat[id] = true
+    emit_chat_print("You [" .. id .. "]: " .. text)
+    emit_chat_print("Hermes [" .. id .. "]: thinking...")
+    AddUITriggeredEvent("X4LLMCopilot", "ChatPending", id)
+    AddUITriggeredEvent("X4LLMCopilot", "ChatRequest", json_value({ type = "chat_request", id = id, text = text }))
+end
+
+local function handle_chat_response(message)
+    local id = unescape_json_string(json_field(message, "id") or "")
+    local text = unescape_json_string(json_field(message, "text") or "")
+    local error_text = unescape_json_string(json_field(message, "error") or "")
+    if id == "" then
+        emit_chat_print("Hermes: malformed chat_response without id.")
+        return
+    end
+    pending_chat[id] = nil
+    if error_text ~= "" then
+        emit_chat_print("Hermes [" .. id .. "] error: " .. error_text)
+    elseif text ~= "" then
+        emit_chat_print("Hermes [" .. id .. "]: " .. text)
+    else
+        emit_chat_print("Hermes [" .. id .. "] error: empty response.")
+    end
+end
+
+local function handle_chat_timeout(id)
+    id = tostring(id or "")
+    if id ~= "" and pending_chat[id] then
+        pending_chat[id] = nil
+        emit_chat_print("Hermes [" .. id .. "] error: timed out waiting for Python/Hermes response.")
+    end
+end
+
+local function chat_text_from_terms(terms)
+    if type(terms) ~= "table" then
+        return tostring(terms or "")
+    end
+    local parts = {}
+    for index = 2, #terms do
+        table.insert(parts, tostring(terms[index] or ""))
+    end
+    return table.concat(parts, " ")
+end
+
 function L.Init()
     DebugError("X4 LLM Copilot Lua ambient module initialized")
     RegisterEvent("x4LLMCopilotFetchAmbient", function(_, request_json)
+        local msg_type = json_field(request_json, "type")
+        if msg_type == "chat_response" then
+            handle_chat_response(request_json)
+            return
+        end
         local intent = request_intent(request_json)
         if intent == "trade_in_sector" then
             emit_trade("fetch_response", request_scope(request_json))
@@ -803,6 +884,12 @@ function L.Init()
         else
             emit_ambient("fetch_response")
         end
+    end)
+    RegisterEvent("x4LLMCopilotChatCommand", function(_, terms)
+        emit_chat_request(chat_text_from_terms(terms))
+    end)
+    RegisterEvent("x4LLMCopilotChatTimeout", function(_, id)
+        handle_chat_timeout(id)
     end)
 end
 

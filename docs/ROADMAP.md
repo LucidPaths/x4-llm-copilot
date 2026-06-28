@@ -47,8 +47,9 @@
 
 ## v0.3 — in-game cockpit UI
 
-- Build the in-game cockpit chatbox round-trip: player prompt in X4 UI -> Hermes/tool request -> response rendered back in the X4 cockpit UI.
+- Build the in-game cockpit chatbox round-trip: player prompt in X4 UI -> Hermes/tool request -> response rendered back in the X4 cockpit UI. First slice uses SirNukes `Chat_Window_API` (`/hermes <question>`) because it already provides in-game hotkey-opened text input and scrollback; Simple Menu editboxes remain a fallback if a dedicated panel becomes necessary.
 - Keep the display layer separate from tool semantics: the UI should render verified telemetry/tool results and fail-closed errors, not invent game state.
+- Preserve async correlation: every `chat_request`/`chat_response` carries an id, `thinking...` is explicit, and timeout/error states never replay stale answers.
 - Ambient/unprompted Hermes display is a derivative of this v0.3 UI path: once the cockpit display can render prompted responses, it can also render bounded ambient notices.
 
 ## v0.4 — brain integration

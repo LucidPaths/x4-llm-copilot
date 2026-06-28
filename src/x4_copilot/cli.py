@@ -5,6 +5,7 @@ import json
 import sys
 from pathlib import Path
 
+from .chat_bridge import serve_chat_bridge
 from .intent import classify
 from .llm import advisor_from_env, list_ollama_models, list_provider_profiles
 from .models import PayloadError, TelemetryPayload
@@ -29,6 +30,11 @@ def main(argv: list[str] | None = None) -> int:
     p_fetch.add_argument("question")
     p_pipe = sub.add_parser("serve-pipe", help="serve the Windows named pipe for X4")
     p_pipe.add_argument("--pipe", default="x4_llm_copilot")
+
+    p_chat = sub.add_parser("serve-chat", help="serve the persistent X4 cockpit chat bridge over the shared pipe")
+    p_chat.add_argument("--pipe", default="x4_llm_copilot")
+    p_chat.add_argument("--fetch-timeout", type=float, default=8.0)
+    p_chat.add_argument("--chat-timeout", type=float, default=90.0)
 
     p_tool = sub.add_parser("tool", help="call the structured tool surface")
     p_tool.add_argument("name", choices=["ambient", "trade", "ship", "faction", "objects"])
@@ -60,6 +66,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "serve-pipe":
         serve_named_pipe(args.pipe)
+        return 0
+    if args.command == "serve-chat":
+        serve_chat_bridge(args.pipe, fetch_timeout_s=args.fetch_timeout, chat_timeout_s=args.chat_timeout)
         return 0
     if args.command == "tool":
         if args.source == "live-pipe":
