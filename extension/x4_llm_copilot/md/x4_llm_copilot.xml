@@ -143,6 +143,15 @@
       </actions>
     </cue>
 
+    <cue name="Continue_Request_Read_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'ContinueRequestRead'" />
+      </conditions>
+      <actions>
+        <signal_cue_instantly cue="Start_Request_Read" />
+      </actions>
+    </cue>
+
     <cue name="Chat_Pending_From_Lua" instantiate="true">
       <conditions>
         <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatPending'" />
@@ -160,11 +169,7 @@
       <actions>
         <debug_text text="'X4 LLM Copilot: ambient write result: %s'.[event.param]" filter="general" />
         <do_if value="event.param == 'SUCCESS'">
-          <signal_cue_instantly cue="md.Named_Pipes.Read" param="table[
-            $pipe='x4_llm_copilot',
-            $cue=Ambient_Read_Callback,
-            $time=5s,
-            $cancel_on_timeout=true]" />
+          <signal_cue_instantly cue="Start_Request_Read" />
         </do_if>
       </actions>
     </cue>

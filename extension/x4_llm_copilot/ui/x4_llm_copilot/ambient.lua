@@ -812,6 +812,10 @@ local function emit_chat_print(text)
     AddUITriggeredEvent("X4LLMCopilot", "ChatPrint", tostring(text or ""))
 end
 
+local function continue_request_read()
+    AddUITriggeredEvent("X4LLMCopilot", "ContinueRequestRead", "")
+end
+
 local function emit_chat_request(text)
     text = tostring(text or "")
     if text == "" then
@@ -882,6 +886,11 @@ function L.Init()
         local msg_type = json_field(request_json, "type")
         if msg_type == "chat_response" then
             handle_chat_response(request_json)
+            continue_request_read()
+            return
+        end
+        if msg_type ~= "fetch" then
+            continue_request_read()
             return
         end
         local intent = request_intent(request_json)

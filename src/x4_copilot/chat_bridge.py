@@ -164,7 +164,7 @@ class ChatPipeBridge:
         args: dict[str, Any] = {}
         if routed.intent == "trade_in_sector":
             args["scope"] = "radar_range"
-        request = FetchRequest(intent=routed.intent, args=args)
+        request = FetchRequest(intent=routed.intent, args=args, question=question)
         return self.fetch_live(request)
 
     def fetch_live(self, request: FetchRequest) -> TelemetryPayload:
