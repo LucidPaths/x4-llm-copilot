@@ -132,6 +132,8 @@ The sector-objects reader sends `intent:"sector_objects"`; Lua emits `schema:"se
 
 ### v0.3 cockpit chat bridge
 
+Status: verified live round-trip from X4 chat to Hermes/Python and back to X4. A running game emitted `/hermes` chat requests as `chat_request` messages with correlation ids, the persistent bridge fetched live telemetry when needed, generated `chat_response` messages, and X4's continuous read loop rendered the matching responses back in the cockpit chat window. This is a real live connection, not fixture replay.
+
 The first cockpit UI slice uses SirNukes `Chat_Window_API`, not `Simple_Menu_API`: Simple Menu can host edit boxes, but X4's chat window already provides the cockpit text input hotkey, scrollback, and print surface with less custom UI risk. The command is registered as `/hermes` and used as `/hermes <question>` in the in-game chat window; slash commands are consumed by the command layer and do not echo as normal chat, so the bridge prints its own `You [id]` / `thinking...` feedback when the callback fires. This is text-in/text-out only. It does not call `set_waypoint`, `mark_target`, autopilot, or any game mutation.
 
 Protocol on the same `x4_llm_copilot` pipe now has two request classes plus probes:
