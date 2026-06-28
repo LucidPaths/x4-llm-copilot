@@ -38,6 +38,7 @@
 - Added a delayed MD retry cue for startup/read-loop errors so missing pipe servers do not permanently dead-end the request loop. Current live caveat: after several reload/retry cycles, duplicate retry loop instances can still exist until the game is restarted; the live fetch path works regardless.
 - Added bounded `scope:"radar_range"` multi-station trade reads (`trade_offers_radar_v1`): Lua enumerates known in-sector stations, filters to radar-visible/within player radar radius, caps at 32 stations / 20 offers per station / 200 offers total, emits station distance in meters and km, and Python normalizes offers through the existing trade-offer mapper while preserving raw station/offer payloads.
 - Remaining in v0.2: broader trade-shape validation across more stations, sector objects, faction relation snapshots, and cleanup of duplicate idle retry loop instances.
+- Future density optimization: radar-range normalized offers currently preserve each offer's raw object and duplicate the containing `station_raw` block per offer. Keep this while capped payloads are small; if dense-sector payload/context weight becomes a problem, split output into a deduped `stations[]` block and have offers reference a station index.
 
 ## v0.3 — brain integration
 
