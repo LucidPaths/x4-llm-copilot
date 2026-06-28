@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from .advisor import GroundedAdvisor
 from .intent import classify
 from .models import PayloadError, TelemetryPayload
-from .pipe import DuplexTransport, NamedPipeServer, PipeDisconnectedError
+from .pipe import DuplexTransport, NamedPipeServer, PipeBusyError, PipeDisconnectedError
 from .protocol import FetchRequest, parse_json_message
 from .tools import (
     DEFAULT_RAW_TELEMETRY_LOG,
@@ -106,7 +106,11 @@ class ChatPipeBridge:
 
     def serve_forever(self) -> None:
         while not self._stop.is_set():
-            self._transport.connect()
+            try:
+                self._transport.connect()
+            except PipeBusyError:
+                time.sleep(0.5)
+                continue
             try:
                 while not self._stop.is_set():
                     raw = self._transport.read()

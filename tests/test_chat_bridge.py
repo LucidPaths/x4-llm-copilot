@@ -5,7 +5,7 @@ import queue
 
 from x4_copilot.chat_bridge import ChatBridgeConfig, ChatPipeBridge
 from x4_copilot.models import TelemetryPayload
-from x4_copilot.pipe import PipeDisconnectedError
+from x4_copilot.pipe import PipeBusyError, PipeDisconnectedError
 
 
 class FakeTransport:
@@ -119,6 +119,30 @@ def test_chat_bridge_reconnects_after_pipe_disconnect() -> None:
 
     assert transport.connect_count == 2
     assert transport.read_count == 2
+
+
+def test_chat_bridge_retries_when_pipe_instance_is_busy() -> None:
+    class BusyTransport(FakeTransport):
+        def __init__(self) -> None:
+            super().__init__()
+            self.connect_count = 0
+            self.bridge: ChatPipeBridge | None = None
+
+        def connect(self) -> None:
+            self.connect_count += 1
+            if self.connect_count == 1:
+                raise PipeBusyError("test busy")
+            if self.bridge is not None:
+                self.bridge.stop()
+            super().connect()
+
+    transport = BusyTransport()
+    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
+    transport.bridge = bridge
+
+    bridge.serve_forever()
+
+    assert transport.connect_count == 2
 
 
 def test_chat_bridge_times_out_fail_closed_without_stale_answer() -> None:

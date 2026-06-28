@@ -6,10 +6,15 @@ from dataclasses import dataclass
 from typing import Protocol
 
 PIPE_DISCONNECTED_CODES = {109, 232, 233}
+PIPE_BUSY_CODES = {231}
 
 
 class PipeDisconnectedError(ConnectionError):
     """Raised when the X4 side closes a named-pipe session."""
+
+
+class PipeBusyError(ConnectionError):
+    """Raised when an old named-pipe instance is still occupied."""
 
 
 def _pipe_error_code(exc: BaseException) -> int | None:
@@ -60,16 +65,21 @@ class NamedPipeServer:
         self.close()
         self._win32file = win32file
         self._win32pipe = win32pipe
-        self._handle = win32pipe.CreateNamedPipe(
-            self.pipe_path,
-            win32pipe.PIPE_ACCESS_DUPLEX,
-            win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
-            1,
-            self.buffer_size,
-            self.buffer_size,
-            0,
-            None,
-        )
+        try:
+            self._handle = win32pipe.CreateNamedPipe(
+                self.pipe_path,
+                win32pipe.PIPE_ACCESS_DUPLEX,
+                win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_READMODE_MESSAGE | win32pipe.PIPE_WAIT,
+                1,
+                self.buffer_size,
+                self.buffer_size,
+                0,
+                None,
+            )
+        except Exception as exc:
+            if _pipe_error_code(exc) in PIPE_BUSY_CODES:
+                raise PipeBusyError("named pipe instance is busy") from exc
+            raise
         win32pipe.ConnectNamedPipe(self._handle, None)
 
     def read(self) -> str:
