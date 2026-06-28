@@ -173,6 +173,41 @@ def test_chat_bridge_normalizes_response_text_for_x4_chat_display() -> None:
 
 
 
+class LongResponder:
+    def answer(self, question: str, payload: TelemetryPayload) -> str:
+        return " ".join(f"segment-{index:03d}" for index in range(180))
+
+
+def test_chat_bridge_chunks_long_chat_responses() -> None:
+    transport = FakeTransport()
+    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0, chat_response_chunk_chars=300), transport=transport, responder=LongResponder())
+
+    bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-long", "text": "hallo"}))
+    deadline = __import__("time").monotonic() + 1.0
+    while not transport.writes and __import__("time").monotonic() < deadline:
+        __import__("time").sleep(0.01)
+    bridge.handle_message(
+        json.dumps(
+            {
+                "type": "telemetry_raw",
+                "intent": "ambient_context",
+                "source": "x4_lua_live",
+                "schema": "ambient_probe_v2",
+                "trigger": "fetch_response",
+                "sector_raw": "Windfall I Union Summit",
+            }
+        )
+    )
+    bridge.wait_for_workers(timeout_s=1.0)
+
+    responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+    assert len(responses) > 1
+    assert responses[0]["text"].startswith("[1/")
+    assert responses[-1]["text"].startswith(f"[{len(responses)}/{len(responses)}]")
+    assert all(len(item["text"]) <= 310 for item in responses)
+
+
+
 def test_chat_bridge_ignores_transient_pipe_status_strings() -> None:
     transport = FakeTransport()
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())

@@ -37,6 +37,7 @@ class ChatBridgeConfig:
     raw_log_path: str = str(DEFAULT_RAW_TELEMETRY_LOG)
     bridge_log_path: str = "var/chat_bridge.jsonl"
     hermes_command: str | None = None
+    chat_response_chunk_chars: int = 900
 
 
 class HermesAgentResponder:
@@ -172,15 +173,26 @@ class ChatPipeBridge:
             if direct_answer is not None:
                 answer = _display_safe_text(direct_answer)
                 self._log_event("chat_response_ready", id=request_id, intent="ambient_context_help", text=answer)
-                self._write_json({"type": "chat_response", "id": request_id, "text": answer})
+                self._write_chat_response(request_id, answer)
                 return
             payload = self.fetch_for_question(question)
             answer = _display_safe_text(self._responder.answer(question, payload))
             self._log_event("chat_response_ready", id=request_id, intent=payload.intent, text=answer)
-            self._write_json({"type": "chat_response", "id": request_id, "text": answer})
+            self._write_chat_response(request_id, answer)
         except Exception as exc:  # noqa: BLE001 - surfaced to cockpit as clean error state
             self._log_event("chat_response_error", id=request_id, error=str(exc))
-            self._write_json({"type": "chat_response", "id": request_id, "error": str(exc), "text": f"Hermes error: {exc}"})
+            self._write_chat_response(request_id, f"Hermes error: {exc}", error=str(exc))
+
+    def _write_chat_response(self, request_id: str, text: str, *, error: str | None = None) -> None:
+        chunks = _chunk_display_text(text, self.config.chat_response_chunk_chars)
+        total = len(chunks)
+        for index, chunk in enumerate(chunks, start=1):
+            display = chunk if total == 1 else f"[{index}/{total}] {chunk}"
+            message: dict[str, Any] = {"type": "chat_response", "id": request_id, "text": display}
+            if error is not None and index == total:
+                message["error"] = error
+            self._log_event("chat_response_chunk", id=request_id, index=index, total=total, chars=len(display))
+            self._write_json(message)
 
     def answer_direct(self, question: str) -> str | None:
         if _normalized_command(question) != "ambient_context":
@@ -275,6 +287,27 @@ def _required_text(message: dict[str, Any], key: str) -> str:
 def serve_chat_bridge(pipe_name: str = "x4_llm_copilot", *, fetch_timeout_s: float = 8.0, chat_timeout_s: float = 90.0) -> None:
     bridge = ChatPipeBridge(ChatBridgeConfig(pipe_name=pipe_name, fetch_timeout_s=fetch_timeout_s, chat_timeout_s=chat_timeout_s))
     bridge.serve_forever()
+
+
+def _chunk_display_text(text: str, max_chars: int) -> list[str]:
+    text = str(text or "")
+    if not text:
+        return [""]
+    max_chars = max(100, int(max_chars or 900))
+    chunks: list[str] = []
+    remaining = text
+    while len(remaining) > max_chars:
+        window = remaining[:max_chars]
+        split_at = max(window.rfind("\n"), window.rfind(". "), window.rfind("; "), window.rfind(", "), window.rfind(" "))
+        if split_at < max_chars // 2:
+            split_at = max_chars
+        chunk = remaining[:split_at].strip()
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[split_at:].strip()
+    if remaining or not chunks:
+        chunks.append(remaining)
+    return chunks
 
 
 def _normalized_command(text: str) -> str:

@@ -163,6 +163,7 @@ Player feedback is explicit across the 90s Hermes timeout window:
 - Lua immediately prints `Hermes [x4chat-N]: received; sending to bridge...` and `Hermes [x4chat-N]: waiting for live telemetry/Hermes...` before the named-pipe write completes.
 - MD raises still-pending notices at 15s, 45s, and 75s while the correlation id remains pending, then the existing 90s timeout prints a fail-closed error if no final `chat_response` arrived.
 - Python normalizes display-risk punctuation in outbound chat text before writing `chat_response` JSON (`curly apostrophe -> '`, em dash -> `-`, ellipsis -> `...`) but does not ASCII-degrade proper nouns/accented letters. Log evidence showed the original curly apostrophe bytes were intact in both `var/chat_bridge.jsonl` and X4 `debuglog.txt` `Request_Read_Callback`, so the pipe transport is UTF-8-clean; the visible mojibake is downstream in the Lua/Chat_Window render path.
+- Long final answers are split into multiple correlated `chat_response` chunks (default 900 chars, rendered as `[1/N]`, `[2/N]`, ...), so large but valid answers do not disappear behind the 90s pending timeout. The deterministic faction fallback summarizes standings instead of dumping raw licence dictionaries into chat.
 
 Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot`, `x4-copilot serve-chat --pipe x4_llm_copilot`, a one-shot live-pipe tool call, or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 

@@ -59,8 +59,25 @@ class GroundedAdvisor:
     def _faction_answer(self, payload: TelemetryPayload) -> str:
         if not payload.data:
             return "No faction deltas/events in the current telemetry window."
+        standings = [item for item in payload.data if item.get("kind") == "faction_standing"]
+        events = [item for item in payload.data if item.get("kind") != "faction_standing"]
+        if standings:
+            top = standings[:5]
+            parts = []
+            for item in top:
+                name = item.get("faction_name") or item.get("faction") or "unknown faction"
+                standing = item.get("standing", "?")
+                relation = item.get("relation_name") or "relation unknown"
+                rank = item.get("rank_title")
+                bit = f"{name}: {standing} ({relation})"
+                if rank:
+                    bit += f", rank {rank}"
+                parts.append(bit)
+            suffix = f" + {len(standings) - len(top)} more" if len(standings) > len(top) else ""
+            event_note = f" Events: {len(events)} raw event records." if events else ""
+            return "Faction standings: " + "; ".join(parts) + suffix + "." + event_note
         event = payload.data[0]
-        summary = event.get("summary") or event.get("event") or str(event)
+        summary = event.get("summary") or event.get("event") or event.get("kind") or "raw faction signal"
         return f"Latest political signal: {summary}"
 
     def _objects_answer(self, payload: TelemetryPayload) -> str:
