@@ -86,18 +86,38 @@ def test_chat_bridge_routes_chat_request_by_correlation_id() -> None:
     assert responses == [{"type": "chat_response", "id": "x4chat-1", "text": "answer for what's selling near me?: trade_in_sector"}]
 
 
-def test_chat_bridge_answers_unknown_chat_without_live_fetch() -> None:
+def test_chat_bridge_defaults_unknown_chat_to_live_ambient_fetch() -> None:
     transport = FakeTransport()
-    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
+    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-smoke", "text": "test"}))
+
+    deadline = __import__("time").monotonic() + 1.0
+    while not transport.writes and __import__("time").monotonic() < deadline:
+        __import__("time").sleep(0.01)
+    fetch = json.loads(transport.writes[0])
+    assert fetch["type"] == "fetch"
+    assert fetch["intent"] == "ambient_context"
+    assert fetch["question"] == "test"
+
+    bridge.handle_message(
+        json.dumps(
+            {
+                "type": "telemetry_raw",
+                "intent": "ambient_context",
+                "source": "x4_lua_live",
+                "schema": "ambient_probe_v2",
+                "trigger": "fetch_response",
+                "sector_raw": "Windfall I Union Summit",
+                "ship_name": "Raleigh (Container)",
+                "player_money": 39362,
+            }
+        )
+    )
     bridge.wait_for_workers(timeout_s=1.0)
 
-    writes = [json.loads(item) for item in transport.writes]
-    assert [item for item in writes if item.get("type") == "fetch"] == []
-    assert [item for item in writes if item.get("type") == "chat_response"] == [
-        {"type": "chat_response", "id": "x4chat-smoke", "text": "answer for test: unknown"}
-    ]
+    responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+    assert responses == [{"type": "chat_response", "id": "x4chat-smoke", "text": "answer for test: ambient_context"}]
 
 
 def test_chat_bridge_ignores_transient_pipe_status_strings() -> None:

@@ -12,7 +12,7 @@ from typing import Any, Protocol
 
 from .advisor import GroundedAdvisor
 from .intent import classify
-from .models import AmbientContext, PayloadError, TelemetryPayload
+from .models import PayloadError, TelemetryPayload
 from .pipe import DuplexTransport, NamedPipeServer, PipeBusyError, PipeDisconnectedError
 from .protocol import FetchRequest, parse_json_message
 from .tools import (
@@ -179,13 +179,9 @@ class ChatPipeBridge:
     def fetch_for_question(self, question: str) -> TelemetryPayload:
         routed = classify(question)
         if routed.intent == "unknown":
-            self._log_event("fetch_bypassed_unknown_intent", question=question)
-            return TelemetryPayload(
-                intent="unknown",
-                ambient=AmbientContext(),
-                data=[],
-                as_of="no live telemetry fetch needed for unscoped chat",
-            )
+            self._log_event("fetch_default_ambient", question=question)
+            request = FetchRequest(intent="ambient_context", args={}, question=question)
+            return self.fetch_live(request)
         args: dict[str, Any] = {}
         if routed.intent == "trade_in_sector":
             args["scope"] = "radar_range"
