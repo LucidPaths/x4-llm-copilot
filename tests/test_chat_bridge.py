@@ -73,6 +73,7 @@ def test_chat_bridge_routes_chat_request_by_correlation_id() -> None:
     fetch = json.loads(transport.writes[0])
     assert fetch["type"] == "fetch"
     assert fetch["intent"] == "trade_in_sector"
+    assert fetch["question"] == "what's selling near me?"
     assert fetch["args"]["scope"] == "radar_range"
 
     bridge.handle_message(json.dumps(_radar_trade_raw()))
@@ -80,6 +81,20 @@ def test_chat_bridge_routes_chat_request_by_correlation_id() -> None:
 
     responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
     assert responses == [{"type": "chat_response", "id": "x4chat-1", "text": "answer for what's selling near me?: trade_in_sector"}]
+
+
+def test_chat_bridge_answers_unknown_chat_without_live_fetch() -> None:
+    transport = FakeTransport()
+    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
+
+    bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-smoke", "text": "test"}))
+    bridge.wait_for_workers(timeout_s=1.0)
+
+    writes = [json.loads(item) for item in transport.writes]
+    assert [item for item in writes if item.get("type") == "fetch"] == []
+    assert [item for item in writes if item.get("type") == "chat_response"] == [
+        {"type": "chat_response", "id": "x4chat-smoke", "text": "answer for test: unknown"}
+    ]
 
 
 def test_chat_bridge_ignores_transient_pipe_status_strings() -> None:
