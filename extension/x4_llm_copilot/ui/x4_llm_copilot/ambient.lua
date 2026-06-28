@@ -795,7 +795,37 @@ local pending_chat = {}
 
 local function json_field(message, field)
     message = tostring(message or "")
-    return string.match(message, '"' .. field .. '"%s*:%s*"(([^"\\]|\\.)*)"')
+    local key = '"' .. tostring(field or "") .. '"'
+    local _, key_end = string.find(message, key, 1, true)
+    if key_end == nil then
+        return nil
+    end
+    local colon = string.find(message, ":", key_end + 1, true)
+    if colon == nil then
+        return nil
+    end
+    local quote = string.find(message, '"', colon + 1, true)
+    if quote == nil then
+        return nil
+    end
+    local out = {}
+    local escaped = false
+    local index = quote + 1
+    while index <= string.len(message) do
+        local char = string.sub(message, index, index)
+        if escaped then
+            table.insert(out, "\\" .. char)
+            escaped = false
+        elseif char == "\\" then
+            escaped = true
+        elseif char == '"' then
+            return table.concat(out)
+        else
+            table.insert(out, char)
+        end
+        index = index + 1
+    end
+    return nil
 end
 
 local function unescape_json_string(value)
