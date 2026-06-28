@@ -59,12 +59,17 @@
         <event_cue_signalled />
       </conditions>
       <actions>
-        <debug_text text="'X4 LLM Copilot: starting request read loop.'" filter="general" />
-        <signal_cue_instantly cue="md.Named_Pipes.Read" param="table[
-          $pipe='x4_llm_copilot',
-          $cue=Request_Read_Callback,
-          $time=3600s,
-          $cancel_on_timeout=true]" />
+        <do_if value="not @Globals.$Request_Read_Continuous_Active">
+          <set_value name="Globals.$Request_Read_Continuous_Active" exact="true" />
+          <debug_text text="'X4 LLM Copilot: starting continuous request read loop.'" filter="general" />
+          <signal_cue_instantly cue="md.Named_Pipes.Read" param="table[
+            $pipe='x4_llm_copilot',
+            $cue=Request_Read_Callback,
+            $continuous=true]" />
+        </do_if>
+        <do_else>
+          <debug_text text="'X4 LLM Copilot: request read loop already active.'" filter="general" />
+        </do_else>
       </actions>
     </cue>
 
@@ -75,6 +80,7 @@
       <actions>
         <debug_text text="'X4 LLM Copilot: request read result: %s'.[event.param]" filter="general" />
         <do_if value="event.param == 'ERROR' or event.param == 'TIMEOUT' or event.param == 'CANCELLED'">
+          <set_value name="Globals.$Request_Read_Continuous_Active" exact="false" />
           <debug_text text="'X4 LLM Copilot: request read failed; retrying after delay: %s'.[event.param]" filter="general" />
           <signal_cue_instantly cue="Delayed_Start_Request_Read" />
         </do_if>
