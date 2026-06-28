@@ -148,6 +148,13 @@ uv run --extra winpipe x4-copilot serve-chat --pipe x4_llm_copilot --fetch-timeo
 
 The bridge owns the single named-pipe server, serializes bridge-owned telemetry fetches, and routes chat responses by correlation id. A slow Hermes answer happens after the live telemetry snapshot is fetched, so it does not hold the telemetry fetch lock. If Python/Hermes is absent, the cockpit-side pending id times out and prints an explicit error instead of replaying an old answer.
 
+Chat routing is intentionally live but bounded:
+
+- `/hermes ambient_context` is a help/capability probe. It answers directly with the telemetry categories the bridge can read and does not consume the pipe with a fetch.
+- Known scoped questions fetch their matching live intent: trade questions -> `trade_in_sector`; ship/status questions -> `ship_status`; faction/politics questions -> `faction_state`; nearby/station/gate/object questions -> `sector_objects`.
+- Unknown natural chat, such as `/hermes hallo`, performs a cheap live `ambient_context` fetch before answering, so smalltalk can still reference verified current sector/ship/credits/cargo instead of inventing state.
+- All chat answers remain text-only. The bridge does not mutate X4 state, set waypoints, mark targets, autopilot, or run combat actions.
+
 Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot`, `x4-copilot serve-chat --pipe x4_llm_copilot`, a one-shot live-pipe tool call, or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 
 Use on-demand live ambient in the MCP server:
