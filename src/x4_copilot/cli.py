@@ -36,6 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     p_tool.add_argument("--raw-log", type=Path, default=None)
     p_tool.add_argument("--pipe", default="x4_llm_copilot")
     p_tool.add_argument("--timeout", type=float, default=8.0)
+    p_tool.add_argument("--scope", choices=["docked_station", "radar_range"], default="docked_station", help="trade tool scope; live-pipe currently supports docked_station only")
 
     sub.add_parser("mcp-config", help="print a Hermes stdio MCP config snippet for this repo")
     sub.add_parser("providers", help="list configured provider profiles without exposing keys")
@@ -72,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
             surface = create_mock_tool_surface()
         calls = {
             "ambient": surface.get_ambient_context,
-            "trade": surface.fetch_trade_offers,
+            "trade": lambda: surface.fetch_trade_offers(scope=args.scope),
             "ship": surface.fetch_ship_status,
             "faction": surface.fetch_faction_state,
             "objects": surface.fetch_sector_objects,

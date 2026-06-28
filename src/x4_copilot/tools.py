@@ -148,6 +148,12 @@ class LivePipeTelemetryFetcher:
     def __call__(self, request: FetchRequest) -> TelemetryPayload:
         if request.intent not in self.supported_intents:
             raise PayloadError(f"live pipe telemetry only supports ambient_context/ship_status/trade_in_sector, got {request.intent}")
+        if request.intent == "trade_in_sector":
+            requested_scope = request.args.get("scope")
+            if requested_scope is None and "radar_only" in request.args:
+                requested_scope = "radar_range" if request.args.get("radar_only") else "docked_station"
+            if requested_scope not in {None, "docked_station"}:
+                raise PayloadError("live pipe trade currently supports scope='docked_station' only; radar_range is not implemented yet")
         self._ensure_ready()
         self._write(request.to_json(), phase="send fetch request")
         raw = self._read_raw_fetch_response()
@@ -392,9 +398,9 @@ def _optional_raw_json(value: Any) -> Any:
 class OverlayTelemetryFetcher:
     """Route supported live intents to a primary fetcher and fall back to fixtures.
 
-    This makes MCP useful immediately: ambient/ship status can be live while trade,
-    faction, and sector-object tools remain explicit mock/stale fixture data until
-    their Lua read paths exist.
+    This makes MCP useful immediately: ambient, ship status, and docked-station
+    trade can be live while faction and sector-object tools remain explicit
+    mock/stale fixture data until their Lua read paths exist.
     """
 
     def __init__(self, primary: TelemetryFetcher, fallback: TelemetryFetcher) -> None:
@@ -437,12 +443,21 @@ class X4ToolSurface:
         result = _payload_base(fetched)
         return result["ambient"] | {"source": result["source"], "stale": result["stale"], "as_of": result["as_of"]}
 
-    def fetch_trade_offers(self, *, radar_only: bool = True, sector: str | None = None) -> dict[str, Any]:
-        args: dict[str, Any] = {"radar_only": radar_only}
+    def fetch_trade_offers(
+        self,
+        *,
+        scope: str = "docked_station",
+        radar_only: bool | None = None,
+        sector: str | None = None,
+    ) -> dict[str, Any]:
+        if radar_only is not None:
+            scope = "radar_range" if radar_only else "docked_station"
+        args: dict[str, Any] = {"scope": scope}
         if sector:
             args["sector"] = sector
         fetched = self._fetch(FetchRequest(intent="trade_in_sector", args=args))
         result = _payload_base(fetched)
+        result["scope"] = scope
         result["offers"] = fetched.payload.data
         return result
 
@@ -554,8 +569,13 @@ def get_ambient_context() -> dict[str, Any]:
     return _default_surface.get_ambient_context()
 
 
-def fetch_trade_offers(radar_only: bool = True, sector: str | None = None) -> dict[str, Any]:
-    return _default_surface.fetch_trade_offers(radar_only=radar_only, sector=sector)
+def fetch_trade_offers(
+    *,
+    scope: str = "docked_station",
+    radar_only: bool | None = None,
+    sector: str | None = None,
+) -> dict[str, Any]:
+    return _default_surface.fetch_trade_offers(scope=scope, radar_only=radar_only, sector=sector)
 
 
 def fetch_ship_status() -> dict[str, Any]:

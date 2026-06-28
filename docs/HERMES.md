@@ -1,6 +1,6 @@
 # Hermes Integration
 
-Status: implemented as a read-only tool surface plus optional stdio MCP wrapper. Ambient/ship-status have verified runtime on-demand named-pipe fetches. Trade has a raw-first live probe path (`trade_offers_probe_v1`) for schema capture; fixture-backed normalized trade remains the fallback until live offer bytes are inspected and mapped. Faction/sector-object reads are still fixture-backed until their Lua read paths exist.
+Status: implemented as a read-only tool surface plus optional stdio MCP wrapper. Ambient/ship-status have verified runtime on-demand named-pipe fetches. Trade has a verified live `docked_station` scope (`trade_offers_probe_v1`) with normalized observed offer fields plus raw preservation. Radar-range trade is explicitly not implemented yet; requests for `scope:"radar_range"` fail closed instead of silently returning docked-station data.
 
 ## Verdict
 
@@ -113,10 +113,12 @@ Use on-demand live ambient in the CLI:
 ```bash
 uv run --extra winpipe x4-copilot tool ambient --source live-pipe
 uv run --extra winpipe x4-copilot tool ship --source live-pipe
-uv run --extra winpipe x4-copilot tool trade --source live-pipe
+uv run --extra winpipe x4-copilot tool trade --source live-pipe --scope docked_station
 ```
 
-`tool trade --source live-pipe` is raw-first and now normalized from observed live bytes. It sends `intent:"trade_in_sector"`; Lua emits `schema:"trade_offers_probe_v1"` with `offers_raw` / `nontrade_offers_raw`; Python maps observed fields (`ware`, `name`, `side`, `price`, `market_price`, `amount`, `station`, `faction`) while keeping the full raw offer under `raw`.
+`tool trade --source live-pipe --scope docked_station` reads the trade container the player ship is currently docked at. This is the only verified live trade scope right now. `--scope radar_range` is reserved for the future multi-station reader and currently fails closed rather than silently returning docked-station data.
+
+The docked-station reader sends `intent:"trade_in_sector"`; Lua emits `schema:"trade_offers_probe_v1"` with `offers_raw` / `nontrade_offers_raw`; Python maps observed fields (`ware`, `name`, `side`, `price`, `market_price`, `amount`, `station`, `faction`) while keeping the full raw offer under `raw`.
 
 Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot` or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 

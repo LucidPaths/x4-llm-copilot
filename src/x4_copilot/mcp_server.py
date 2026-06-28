@@ -26,9 +26,13 @@ def build_mcp_server():
         return surface.get_ambient_context()
 
     @mcp.tool()
-    def fetch_trade_offers(radar_only: bool = True, sector: str | None = None) -> dict[str, Any]:
-        """Return structured trade offers. No prose, no model calls, no credentials."""
-        return surface.fetch_trade_offers(radar_only=radar_only, sector=sector)
+    def fetch_trade_offers(
+        scope: str = "docked_station",
+        radar_only: bool | None = None,
+        sector: str | None = None,
+    ) -> dict[str, Any]:
+        """Return structured trade offers. Live pipe currently supports scope='docked_station'; radar_range is future work."""
+        return surface.fetch_trade_offers(scope=scope, radar_only=radar_only, sector=sector)
 
     @mcp.tool()
     def fetch_ship_status() -> dict[str, Any]:

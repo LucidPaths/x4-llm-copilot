@@ -2,7 +2,7 @@ import json
 import threading
 import time
 
-from x4_copilot.models import AmbientContext, TelemetryPayload
+from x4_copilot.models import AmbientContext, PayloadError, TelemetryPayload
 from x4_copilot.protocol import FetchRequest
 from x4_copilot.tools import (
     FetchProvenance,
@@ -407,7 +407,7 @@ def test_live_pipe_fetcher_routes_trade_request_to_raw_trade_payload(tmp_path):
             pass
 
     fetcher = LivePipeTelemetryFetcher(transport=FakeTradeTransport(), raw_log_path=tmp_path / "raw.jsonl")
-    payload = fetcher(FetchRequest(intent="trade_in_sector", args={"radar_only": True}))
+    payload = fetcher(FetchRequest(intent="trade_in_sector", args={"scope": "docked_station"}))
 
     assert payload.intent == "trade_in_sector"
     assert payload.data[0] | {"raw": None} == {
@@ -432,6 +432,39 @@ def test_live_pipe_fetcher_routes_trade_request_to_raw_trade_payload(tmp_path):
     }
     assert payload.data[0]["raw"] == {"ware": "water", "amount": 7, "price": 30}
     assert any('"intent": "trade_in_sector"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
+    assert any('"scope": "docked_station"' in write for write in fetcher._transport.writes)  # type: ignore[union-attr]
+
+
+def test_live_pipe_fetcher_rejects_unimplemented_radar_range_trade(tmp_path):
+    class FakeTransport:
+        def connect(self) -> None:
+            pass
+
+        def read(self) -> str:
+            raise AssertionError("radar_range should fail before transport read")
+
+        def write(self, message: str) -> None:
+            raise AssertionError(f"radar_range should fail before write: {message}")
+
+        def close(self) -> None:
+            pass
+
+    fetcher = LivePipeTelemetryFetcher(transport=FakeTransport(), raw_log_path=tmp_path / "raw.jsonl")
+    try:
+        fetcher(FetchRequest(intent="trade_in_sector", args={"scope": "radar_range"}))
+    except PayloadError as exc:
+        assert "docked_station" in str(exc)
+        assert "radar_range" in str(exc)
+    else:
+        raise AssertionError("radar_range live trade must fail closed until implemented")
+
+    try:
+        fetcher(FetchRequest(intent="trade_in_sector", args={"radar_only": True}))
+    except PayloadError as exc:
+        assert "docked_station" in str(exc)
+        assert "radar_range" in str(exc)
+    else:
+        raise AssertionError("legacy radar_only=True must fail closed until implemented")
 
 
 def test_live_pipe_fetcher_timeout_raises_instead_of_replaying_log(tmp_path):
