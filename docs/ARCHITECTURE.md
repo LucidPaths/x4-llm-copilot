@@ -34,6 +34,8 @@ Additional Hermes-facing surfaces:
 - `x4-copilot tool <name>`: local structured smoke for the mock-backed tool surface.
 - `x4-copilot-mcp`: stdio MCP server entry point, installed via the `mcp` extra.
 
+Cockpit session state belongs to this X4 mod, not the operator's default Hermes app state. The save-scoped session architecture is documented in `docs/SAVE_SCOPED_COCKPIT_SESSIONS.md`: per-save transcripts/summaries/facts should live under an X4 Copilot app state root or app-owned isolated `HERMES_HOME`, while fresh live telemetry remains the only current-state authority.
+
 The tool layer is deliberately model-free: no provider routing, no keys, no prose generation. Hermes owns model routing on the MCP path; `llm.py` remains only for the separate reflex advisor path. Provenance is structured (`FetchProvenance`) instead of inferred from display timestamps, and ambient context has its own fetch intent so a live adapter can answer it cheaply without doing a full ship-status fetch.
 
 ## Protocol

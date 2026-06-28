@@ -150,6 +150,8 @@ uv run --extra winpipe x4-copilot serve-chat --pipe x4_llm_copilot --fetch-timeo
 
 The bridge owns the single named-pipe server, serializes bridge-owned telemetry fetches, and routes chat responses by correlation id. A slow Hermes answer happens after the live telemetry snapshot is fetched, so it does not hold the telemetry fetch lock. If Python/Hermes is absent, the cockpit-side pending id times out and prints an explicit error instead of replaying an old answer.
 
+Cockpit conversation memory is intentionally **not** the operator's normal Hermes memory. The design target is a save-scoped X4 session layer: per-save transcript/summary/facts stored under an app-owned X4 Copilot state root, with fresh live telemetry injected each turn. See `docs/SAVE_SCOPED_COCKPIT_SESSIONS.md` for the isolation contract, save-scope identity resolver, storage layout, reset/export commands, and tests required before this can be claimed as durable save memory.
+
 Chat routing is intentionally live but bounded:
 
 - `/hermes ambient_context` is a help/capability probe. It answers directly with the telemetry categories the bridge can read and does not consume the pipe with a fetch.
@@ -209,8 +211,8 @@ The handoff's risk was that Hermes might not consume MCP. Verified current Herme
 
 - Wider live validation across sectors plus a verified live collectable/wreck enumeration API.
 - Expanded rank derivation beyond standard faction ceremony licence tiers.
+- Save-scoped cockpit session store and resolver from `docs/SAVE_SCOPED_COCKPIT_SESSIONS.md`.
 - Reflex STT/TTS path.
-- Hermes memory feed for reflex Q/A.
 - Mutating actions (`set_waypoint`, `mark_target`).
 
 Those are intentionally not faked.
