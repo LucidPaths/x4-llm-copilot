@@ -801,9 +801,7 @@ end
 local function unescape_json_string(value)
     value = tostring(value or "")
     value = string.gsub(value, '\\n', '\n')
-    value = string.gsub(value, '\
-', '
-')
+    value = string.gsub(value, '\\r', '\r')
     value = string.gsub(value, '\\t', '\t')
     value = string.gsub(value, '\\"', '"')
     value = string.gsub(value, '\\\\', '\\')
