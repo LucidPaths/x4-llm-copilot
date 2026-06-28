@@ -42,7 +42,6 @@
 - Preserved the faction-event boundary honestly: diplomacy event APIs returned empty in live smoke, no synthetic events are fabricated, and the event normalizer is ready for a verified event source when one is found.
 - Added raw-first live sector-object reads (`sector_objects_v1`): Lua enumerates verified stations/gates/ships, applies kinds filtering through `_canonical_sector_kind`, emits required `dist_km`, and Python preserves raw object payloads while normalizing observed object fields.
 - Remaining in v0.2: collectable/wreck enumeration and duplicate idle retry-loop cleanup. `GetContainedObjects` is not a Lua global and was removed; collectables/wrecks need a verified live API before being claimed.
-- Known issue: `test_live_pipe_fetcher_wall_clock_timeout_on_probe_churn` is timing-flaky on slow hardware. The fail-closed behavior is correct, but the test over-specifies which timeout message fires; fix it to assert raised fail-closed behavior, not the exact message string.
 - Future density optimization: radar-range normalized offers currently preserve each offer's raw object and duplicate the containing `station_raw` block per offer. Keep this while capped payloads are small; if dense-sector payload/context weight becomes a problem, split output into a deduped `stations[]` block and have offers reference a station index.
 
 ## v0.3 — in-game cockpit UI

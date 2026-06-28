@@ -75,7 +75,7 @@ The bridge needs a stable `save_scope_id` before it can choose the right session
 2. **Configured save binding** from `--save-scope`, `X4_COPILOT_SAVE_SCOPE`, or the in-cockpit `/hermes save <name>` command.
 3. **Derived universe fingerprint** from live telemetry fields currently available to the bridge (`sector`, `ship`, and whether credits are present).
 
-The fallback fingerprint is labelled `confidence:"derived"` and is provisional. Once a verified X4 save-id API is found, it should become the primary source and the derived fallback should remain only for development or emergency continuity.
+The fallback fingerprint is labelled `confidence:"derived"` and is provisional. It is not a unique save identity: two saves in the same sector with the same occupied ship and credits-presence can collide and share a transcript. For parallel or similar saves, prefer explicit `save_scope_id`, `--save-scope`, or `/hermes save <name>` binding over trusting the fingerprint. Once a verified X4 save-id API is found, it should become the primary source and the derived fallback should remain only for development or emergency continuity.
 
 Scope envelope:
 
