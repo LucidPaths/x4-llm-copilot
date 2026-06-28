@@ -25,7 +25,7 @@ Core importable module: `src/x4_copilot/tools.py`
 Read tools:
 
 - `get_ambient_context()`
-- `fetch_trade_offers(radar_only=True, sector=None)`
+- `fetch_trade_offers(scope="docked_station", radar_only=None, sector=None)`
 - `fetch_ship_status()`
 - `fetch_faction_state(since=None)`
 - `fetch_sector_objects(kinds=None)`
@@ -82,7 +82,7 @@ By default the tool surface uses `MockTelemetryFetcher` and fixture files in `ex
 
 Every mock result is marked via structured provenance (`FetchProvenance(source="mock", stale=True)`) and surfaced as `source: "mock"` / `stale: true`. The tool layer does **not** parse `as_of` text to infer provenance.
 
-A first live read path is verified for ambient/ship-status data only.
+Verified runtime live pipe reads currently cover ambient context, ship status via the ambient payload, and docked-station trade offers. Faction state and sector objects remain mock/stale fixtures until their Lua read paths exist.
 
 ### Runtime live pipe mode
 
@@ -95,6 +95,8 @@ This is the source of truth for real co-pilot calls:
 5. Python returns that response directly and appends it to `var/live_telemetry_raw.jsonl` only as a debug/audit log.
 
 A failed or missing pipe response raises an error. It does **not** replay the last JSONL line. The `fetch_response` wait is bounded by a single wall-clock deadline, so background probe churn cannot keep the call alive forever by repeatedly resetting per-read timeouts.
+
+Runtime precondition: X4 must be running with SirNukes Named Pipes loaded and the `x4_llm_copilot` extension active. If the game/API is not started, the Windows named-pipe server waits for X4 to attach; use an outer command timeout for operator smoke checks in that state. That no-game case is distinct from an in-game fetch timeout after the pipe has attached.
 
 Verified live smoke from the running game:
 
@@ -154,7 +156,7 @@ X4_COPILOT_RAW_TELEMETRY_LOG=var/live_telemetry_raw.jsonl \
 uv run --extra mcp x4-copilot-mcp
 ```
 
-Trade, faction, and sector-object tools remain mock/stale until their Lua read paths exist. The mixed live/mock surface reports provenance per result, so Hermes can see which tools are real.
+Docked-station trade is available through runtime live pipe mode. Faction and sector-object tools remain mock/stale until their Lua read paths exist. The mixed live/mock surface reports provenance per result, so Hermes can see which tools are real.
 
 ## Why MCP over direct Hermes tool now?
 
@@ -162,8 +164,9 @@ The handoff's risk was that Hermes might not consume MCP. Verified current Herme
 
 ## Not implemented yet
 
-- Live X4 trade-offer, faction-state, and sector-object Lua reads.
-- Direct request/response pipe-backed `TelemetryFetcher` for scoped non-ambient fetches.
+- Radar-range/multi-station live X4 trade reads.
+- Live X4 faction-state and sector-object Lua reads.
+- Direct request/response pipe-backed `TelemetryFetcher` support beyond ambient, ship-status, and docked-station trade.
 - Reflex STT/TTS path.
 - Hermes memory feed for reflex Q/A.
 - Mutating actions (`set_waypoint`, `mark_target`).

@@ -21,7 +21,7 @@
 - Added flexible faction-state extraction for nested fixture and itemized live-shaped payloads.
 - Added action stubs that refuse by default and never mutate game state.
 - Added committed MCP SDK/client-path tests and CI smoke coverage.
-- Documented the hard boundary: Hermes path is mock-backed until the live Lua/MD telemetry reader exists.
+- Documented the initial hard boundary: Hermes path was mock-backed until live Lua/MD telemetry reads were validated.
 
 ## v0.2 — live X4 pipe and telemetry reads — partial
 

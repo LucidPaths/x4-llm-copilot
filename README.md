@@ -128,7 +128,7 @@ Route all via OpenRouter (or shim) for hot-swap.
 **Telemetry-in (brain requests → adapter responds, one batched message):**
 ```json
 // request
-{ "type": "fetch", "intent": "trade_in_sector", "args": { "radar_only": true } }
+{ "type": "fetch", "intent": "trade_in_sector", "args": { "scope": "radar_range" } }
 
 // response
 {
@@ -148,7 +148,7 @@ Map onto Mantella's existing Action interface (define X4 equivalents: `set_waypo
 **Intent → fetch table (initial set):**
 | Intent (router output) | Adapter fetch |
 |---|---|
-| `trade_in_sector` | trade offers of stations in radar range |
+| `trade_in_sector` | trade offers; target scope is radar range, current live implementation supports `docked_station` only |
 | `faction_state` | current faction relations + recent combat/diplomacy events |
 | `ship_status` | hull/shield/cargo/credits/fuel of player ship |
 | `sector_objects` | stations/gates/lockboxes/wrecks in current sector |
@@ -248,9 +248,9 @@ Map onto Mantella's existing Action interface (define X4 equivalents: `set_waypo
 
 ## Repository status
 
-This repo has moved past design-only. It now includes an executable Python adapter spine, sample telemetry payloads, tests, a Hermes/MCP mock-backed tool surface, and an X4 extension skeleton.
+This repo has moved past design-only. It now includes an executable Python adapter spine, sample telemetry payloads, tests, a Hermes/MCP tool surface, and an X4 extension with verified live named-pipe reads for ambient/ship status plus docked-station trade.
 
-Hermes integration is possible with the current Hermes stack: Hermes has a native MCP client for stdio servers. The implemented path is `x4_copilot.tools` (plain importable functions over `TelemetryFetcher`) plus `x4-copilot-mcp` (stdio MCP wrapper). It is mock-backed until the live Lua/MD telemetry reader exists; no live game data is fabricated.
+Hermes integration is possible with the current Hermes stack: Hermes has a native MCP client for stdio servers. The implemented path is `x4_copilot.tools` (plain importable functions over `TelemetryFetcher`) plus `x4-copilot-mcp` (stdio MCP wrapper). Live pipe mode is real for ambient context, ship status, and `scope="docked_station"` trade; `scope="radar_range"`, faction state, and sector objects remain unimplemented/mock-stale rather than fabricated.
 
 Quick smoke:
 
