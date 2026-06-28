@@ -5,6 +5,21 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
 
+PIPE_DISCONNECTED_CODES = {109, 232, 233}
+
+
+class PipeDisconnectedError(ConnectionError):
+    """Raised when the X4 side closes a named-pipe session."""
+
+
+def _pipe_error_code(exc: BaseException) -> int | None:
+    code = getattr(exc, "winerror", None)
+    if isinstance(code, int):
+        return code
+    if exc.args and isinstance(exc.args[0], int):
+        return exc.args[0]
+    return None
+
 
 class DuplexTransport(Protocol):
     def connect(self) -> None: ...
@@ -60,13 +75,23 @@ class NamedPipeServer:
     def read(self) -> str:
         if self._handle is None or self._win32file is None:
             raise RuntimeError("pipe is not connected")
-        _err, data = self._win32file.ReadFile(self._handle, self.buffer_size)
+        try:
+            _err, data = self._win32file.ReadFile(self._handle, self.buffer_size)
+        except Exception as exc:
+            if _pipe_error_code(exc) in PIPE_DISCONNECTED_CODES:
+                raise PipeDisconnectedError("named pipe client disconnected") from exc
+            raise
         return data.decode("utf-8")
 
     def write(self, message: str) -> None:
         if self._handle is None or self._win32file is None:
             raise RuntimeError("pipe is not connected")
-        self._win32file.WriteFile(self._handle, message.encode("utf-8"))
+        try:
+            self._win32file.WriteFile(self._handle, message.encode("utf-8"))
+        except Exception as exc:
+            if _pipe_error_code(exc) in PIPE_DISCONNECTED_CODES:
+                raise PipeDisconnectedError("named pipe client disconnected") from exc
+            raise
 
     def close(self) -> None:
         if self._handle is None:
