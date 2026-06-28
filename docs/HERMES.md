@@ -157,6 +157,13 @@ Chat routing is intentionally live but bounded:
 - Unknown natural chat, such as `/hermes hallo`, performs a cheap live `ambient_context` fetch before answering, so smalltalk can still reference verified current sector/ship/credits/cargo instead of inventing state.
 - All chat answers remain text-only. The bridge does not mutate X4 state, set waypoints, mark targets, autopilot, or run combat actions.
 
+Player feedback is explicit across the 90s Hermes timeout window:
+
+- Lua prints `You [x4chat-N]: ...` immediately so the command never disappears silently.
+- Lua immediately prints `Hermes [x4chat-N]: received; sending to bridge...` and `Hermes [x4chat-N]: waiting for live telemetry/Hermes...` before the named-pipe write completes.
+- MD raises still-pending notices at 15s, 45s, and 75s while the correlation id remains pending, then the existing 90s timeout prints a fail-closed error if no final `chat_response` arrived.
+- Python normalizes outbound chat text to ASCII-safe punctuation before writing `chat_response` JSON, avoiding visible mojibake from curly apostrophes/dashes in X4's chat renderer.
+
 Pipe ownership rule: this live mode creates the named-pipe server for `x4_llm_copilot`. Do **not** also run `x4-copilot serve-pipe --pipe x4_llm_copilot`, `x4-copilot serve-chat --pipe x4_llm_copilot`, a one-shot live-pipe tool call, or another live fetcher on the same pipe name at the same time; only one server can own that pipe.
 
 Use on-demand live ambient in the MCP server:

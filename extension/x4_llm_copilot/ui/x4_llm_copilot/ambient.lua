@@ -856,7 +856,8 @@ local function emit_chat_request(text)
     local id = "x4chat-" .. tostring(chat_sequence)
     pending_chat[id] = true
     emit_chat_print("You [" .. id .. "]: " .. text)
-    emit_chat_print("Hermes [" .. id .. "]: queued...")
+    emit_chat_print("Hermes [" .. id .. "]: received; sending to bridge...")
+    emit_chat_print("Hermes [" .. id .. "]: waiting for live telemetry/Hermes...")
     AddUITriggeredEvent("X4LLMCopilot", "ChatPending", id)
     AddUITriggeredEvent("X4LLMCopilot", "ChatRequest", json_value({ type = "chat_request", id = id, text = text }))
 end
@@ -876,6 +877,13 @@ local function handle_chat_response(message)
         emit_chat_print("Hermes [" .. id .. "]: " .. text)
     else
         emit_chat_print("Hermes [" .. id .. "] error: empty response.")
+    end
+end
+
+local function handle_chat_still_pending(id)
+    id = tostring(id or "")
+    if id ~= "" and pending_chat[id] then
+        emit_chat_print("Hermes [" .. id .. "]: still working; waiting for Python/Hermes...")
     end
 end
 
@@ -942,6 +950,9 @@ function L.Init()
         if question ~= nil then
             emit_chat_request(question)
         end
+    end)
+    RegisterEvent("x4LLMCopilotChatStillPending", function(_, id)
+        handle_chat_still_pending(id)
     end)
     RegisterEvent("x4LLMCopilotChatTimeout", function(_, id)
         handle_chat_timeout(id)

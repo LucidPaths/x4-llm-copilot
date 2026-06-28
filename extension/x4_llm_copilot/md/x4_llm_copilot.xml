@@ -169,6 +169,36 @@
       </actions>
     </cue>
 
+    <cue name="Chat_Still_Pending_15_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatPending'" />
+      </conditions>
+      <delay exact="15s" />
+      <actions>
+        <raise_lua_event name="'x4LLMCopilotChatStillPending'" param="event.param3" />
+      </actions>
+    </cue>
+
+    <cue name="Chat_Still_Pending_45_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatPending'" />
+      </conditions>
+      <delay exact="45s" />
+      <actions>
+        <raise_lua_event name="'x4LLMCopilotChatStillPending'" param="event.param3" />
+      </actions>
+    </cue>
+
+    <cue name="Chat_Still_Pending_75_From_Lua" instantiate="true">
+      <conditions>
+        <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatPending'" />
+      </conditions>
+      <delay exact="75s" />
+      <actions>
+        <raise_lua_event name="'x4LLMCopilotChatStillPending'" param="event.param3" />
+      </actions>
+    </cue>
+
     <cue name="Chat_Pending_From_Lua" instantiate="true">
       <conditions>
         <event_ui_triggered screen="'X4LLMCopilot'" control="'ChatPending'" />

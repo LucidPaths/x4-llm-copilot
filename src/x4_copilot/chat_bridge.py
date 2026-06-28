@@ -6,6 +6,7 @@ import queue
 import subprocess
 import threading
 import time
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -170,11 +171,12 @@ class ChatPipeBridge:
             self._log_event("chat_request_start", id=request_id, question=question)
             direct_answer = self.answer_direct(question)
             if direct_answer is not None:
-                self._log_event("chat_response_ready", id=request_id, intent="ambient_context_help", text=direct_answer)
-                self._write_json({"type": "chat_response", "id": request_id, "text": direct_answer})
+                answer = _display_safe_text(direct_answer)
+                self._log_event("chat_response_ready", id=request_id, intent="ambient_context_help", text=answer)
+                self._write_json({"type": "chat_response", "id": request_id, "text": answer})
                 return
             payload = self.fetch_for_question(question)
-            answer = self._responder.answer(question, payload)
+            answer = _display_safe_text(self._responder.answer(question, payload))
             self._log_event("chat_response_ready", id=request_id, intent=payload.intent, text=answer)
             self._write_json({"type": "chat_response", "id": request_id, "text": answer})
         except Exception as exc:  # noqa: BLE001 - surfaced to cockpit as clean error state
@@ -278,3 +280,26 @@ def serve_chat_bridge(pipe_name: str = "x4_llm_copilot", *, fetch_timeout_s: flo
 
 def _normalized_command(text: str) -> str:
     return str(text or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _display_safe_text(text: str) -> str:
+    replacements = {
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201a": "'",
+        "\u201b": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u201e": '"',
+        "\u201f": '"',
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2026": "...",
+        "\u00a0": " ",
+    }
+    safe = str(text or "")
+    for old, new in replacements.items():
+        safe = safe.replace(old, new)
+    safe = unicodedata.normalize("NFKD", safe)
+    safe = safe.encode("ascii", "replace").decode("ascii")
+    return safe
