@@ -38,17 +38,27 @@
 - Added a delayed MD retry cue for startup/read-loop errors so missing pipe servers do not permanently dead-end the request loop. Current live caveat: after several reload/retry cycles, duplicate retry loop instances can still exist until the game is restarted; the live fetch path works regardless.
 - Added bounded `scope:"radar_range"` multi-station trade reads (`trade_offers_radar_v1`): Lua enumerates known in-sector stations, filters to radar-visible/within player radar radius, caps at 32 stations / 20 offers per station / 200 offers total, emits station distance in meters and km, and Python normalizes offers through the existing trade-offer mapper while preserving raw station/offer payloads.
 - Added raw-first live faction-state reads (`faction_state_v1`): Lua captures `GetUIRelation` player↔faction standings plus faction ids/names/rank licence evidence and diplomacy event operations; Python normalizes observed standings/events while preserving raw payloads.
-- Remaining in v0.2: broader trade-shape validation across more stations, sector objects, broader faction-event source validation beyond diplomacy operations, and cleanup of duplicate idle retry loop instances.
+- Reconciled faction-rank normalization against live VIG data: rank is resolved by standing-gated ceremony-licence type (`ceremonyfriend` at standing >= 10, `ceremonyally` at standing >= 20), not last-licence-wins. Raw licence lists can be over-broad (VIG returned both `Syndicate Enforcer` and `Capo`), so standing is the disambiguator while raw licence evidence remains preserved.
+- Preserved the faction-event boundary honestly: diplomacy event APIs returned empty in live smoke, no synthetic events are fabricated, and the event normalizer is ready for a verified event source when one is found.
+- Added raw-first live sector-object reads (`sector_objects_v1`): Lua enumerates verified stations/gates/ships, applies kinds filtering through `_canonical_sector_kind`, emits required `dist_km`, and Python preserves raw object payloads while normalizing observed object fields.
+- Remaining in v0.2: collectable/wreck enumeration and duplicate idle retry-loop cleanup. `GetContainedObjects` is not a Lua global and was removed; collectables/wrecks need a verified live API before being claimed.
+- Known issue: `test_live_pipe_fetcher_wall_clock_timeout_on_probe_churn` is timing-flaky on slow hardware. The fail-closed behavior is correct, but the test over-specifies which timeout message fires; fix it to assert raised fail-closed behavior, not the exact message string.
 - Future density optimization: radar-range normalized offers currently preserve each offer's raw object and duplicate the containing `station_raw` block per offer. Keep this while capped payloads are small; if dense-sector payload/context weight becomes a problem, split output into a deduped `stations[]` block and have offers reference a station index.
 
-## v0.3 — brain integration
+## v0.3 — in-game cockpit UI
+
+- Build the in-game cockpit chatbox round-trip: player prompt in X4 UI -> Hermes/tool request -> response rendered back in the X4 cockpit UI.
+- Keep the display layer separate from tool semantics: the UI should render verified telemetry/tool results and fail-closed errors, not invent game state.
+- Ambient/unprompted Hermes display is a derivative of this v0.3 UI path: once the cockpit display can render prompted responses, it can also render bounded ambient notices.
+
+## v0.4 — brain integration
 
 - Keep protocol stable.
 - Add Pantella/Mantella bridge after license review.
 - Prefer Pantella-style interface module for heavy X4 customization; emulate Mantella's declarative action schema for safe commands.
 
-## v0.4 — voice and safe actions
+## v0.5 — voice and safe actions
 
-- Add STT/TTS front-end.
+- Add STT/TTS front-end as a layer on top of the v0.3 in-game chatbox round-trip, not as a replacement for it.
 - Add explicit opt-in `set_waypoint` / `mark_target` actions.
 - Keep combat/autopilot automation out of scope unless deliberately re-scoped.
