@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Protocol
@@ -83,21 +84,30 @@ class NamedPipeServer:
         win32pipe.ConnectNamedPipe(self._handle, None)
 
     def read(self) -> str:
-        if self._handle is None or self._win32file is None:
+        if self._handle is None or self._win32file is None or self._win32pipe is None:
             raise RuntimeError("pipe is not connected")
-        try:
-            _err, data = self._win32file.ReadFile(self._handle, self.buffer_size)
-        except Exception as exc:
-            if _pipe_error_code(exc) in PIPE_DISCONNECTED_CODES:
-                raise PipeDisconnectedError("named pipe client disconnected") from exc
-            raise
-        return data.decode("utf-8")
+        deadline = None if self.timeout_s is None else time.monotonic() + self.timeout_s
+        while True:
+            try:
+                _data, bytes_available, _bytes_left = self._win32pipe.PeekNamedPipe(self._handle, 0)
+                if bytes_available:
+                    _err, data = self._win32file.ReadFile(self._handle, self.buffer_size)
+                    return data.decode("utf-8")
+            except Exception as exc:
+                if _pipe_error_code(exc) in PIPE_DISCONNECTED_CODES:
+                    raise PipeDisconnectedError("named pipe client disconnected") from exc
+                raise
+            if deadline is not None and time.monotonic() >= deadline:
+                return ""
+            time.sleep(0.01)
 
     def write(self, message: str) -> None:
         if self._handle is None or self._win32file is None:
             raise RuntimeError("pipe is not connected")
         try:
             self._win32file.WriteFile(self._handle, message.encode("utf-8"))
+            with suppress(Exception):
+                self._win32file.FlushFileBuffers(self._handle)
         except Exception as exc:
             if _pipe_error_code(exc) in PIPE_DISCONNECTED_CODES:
                 raise PipeDisconnectedError("named pipe client disconnected") from exc

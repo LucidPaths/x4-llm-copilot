@@ -220,6 +220,12 @@ class ChatPipeBridge:
             text=message.get("text"),
         )
         self._write(json.dumps(message, ensure_ascii=False))
+        self._log_event(
+            "message_write_complete",
+            type=message.get("type"),
+            id=message.get("id"),
+            intent=message.get("intent"),
+        )
 
     def _write(self, message: str) -> None:
         with self._write_lock:
