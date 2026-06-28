@@ -86,6 +86,25 @@ def test_chat_bridge_routes_chat_request_by_correlation_id() -> None:
     assert responses == [{"type": "chat_response", "id": "x4chat-1", "text": "answer for what's selling near me?: trade_in_sector"}]
 
 
+def test_chat_bridge_answers_ambient_context_with_capability_help_without_fetch() -> None:
+    transport = FakeTransport()
+    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
+
+    bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-help", "text": "ambient_context"}))
+    bridge.wait_for_workers(timeout_s=1.0)
+
+    writes = [json.loads(item) for item in transport.writes]
+    assert [item for item in writes if item.get("type") == "fetch"] == []
+    responses = [item for item in writes if item.get("type") == "chat_response"]
+    assert len(responses) == 1
+    assert responses[0]["id"] == "x4chat-help"
+    assert "ambient_context" in responses[0]["text"]
+    assert "trade_in_sector" in responses[0]["text"]
+    assert "faction_state" in responses[0]["text"]
+    assert "sector_objects" in responses[0]["text"]
+
+
+
 def test_chat_bridge_defaults_unknown_chat_to_live_ambient_fetch() -> None:
     transport = FakeTransport()
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())

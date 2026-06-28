@@ -168,6 +168,11 @@ class ChatPipeBridge:
     def _handle_chat_request(self, request_id: str, question: str) -> None:
         try:
             self._log_event("chat_request_start", id=request_id, question=question)
+            direct_answer = self.answer_direct(question)
+            if direct_answer is not None:
+                self._log_event("chat_response_ready", id=request_id, intent="ambient_context_help", text=direct_answer)
+                self._write_json({"type": "chat_response", "id": request_id, "text": direct_answer})
+                return
             payload = self.fetch_for_question(question)
             answer = self._responder.answer(question, payload)
             self._log_event("chat_response_ready", id=request_id, intent=payload.intent, text=answer)
@@ -175,6 +180,16 @@ class ChatPipeBridge:
         except Exception as exc:  # noqa: BLE001 - surfaced to cockpit as clean error state
             self._log_event("chat_response_error", id=request_id, error=str(exc))
             self._write_json({"type": "chat_response", "id": request_id, "error": str(exc), "text": f"Hermes error: {exc}"})
+
+    def answer_direct(self, question: str) -> str | None:
+        if _normalized_command(question) != "ambient_context":
+            return None
+        return (
+            "I can answer from live telemetry: ambient_context (sector, ship, credits, target/cargo), "
+            "ship_status (hull/shield/cargo), trade_in_sector (visible buy/sell offers), "
+            "faction_state (relations/events), and sector_objects (stations/gates/notable ships). "
+            "Ask in plain language, e.g. 'what's selling near me?' or 'what's my ship status?'"
+        )
 
     def fetch_for_question(self, question: str) -> TelemetryPayload:
         routed = classify(question)
@@ -259,3 +274,7 @@ def _required_text(message: dict[str, Any], key: str) -> str:
 def serve_chat_bridge(pipe_name: str = "x4_llm_copilot", *, fetch_timeout_s: float = 8.0, chat_timeout_s: float = 90.0) -> None:
     bridge = ChatPipeBridge(ChatBridgeConfig(pipe_name=pipe_name, fetch_timeout_s=fetch_timeout_s, chat_timeout_s=chat_timeout_s))
     bridge.serve_forever()
+
+
+def _normalized_command(text: str) -> str:
+    return str(text or "").strip().lower().replace("-", "_").replace(" ", "_")
