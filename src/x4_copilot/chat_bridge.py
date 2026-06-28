@@ -128,6 +128,12 @@ class ChatPipeBridge:
 
     def handle_message(self, raw: str) -> None:
         stripped = str(raw or "").strip()
+        if stripped == "garbage_collected":
+            # SirNukes' Lua pipe wrapper writes this when UI reload/GC loses the
+            # client file handle. Treat it as a hard session boundary so the
+            # bridge closes and recreates the named-pipe instance for X4.
+            self._log_event("pipe_client_garbage_collected")
+            raise PipeDisconnectedError("named pipe client garbage collected")
         if stripped in {"", "ERROR", "TIMEOUT", "CANCELLED"}:
             # SirNukes read callbacks can surface transient pipe status strings.
             # They are not protocol messages and must not crash the persistent bridge.

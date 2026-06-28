@@ -111,6 +111,20 @@ def test_chat_bridge_ignores_transient_pipe_status_strings() -> None:
     assert transport.writes == []
 
 
+def test_chat_bridge_raises_disconnect_on_lua_garbage_collected_signal() -> None:
+    transport = FakeTransport()
+    bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
+
+    try:
+        bridge.handle_message("garbage_collected")
+    except PipeDisconnectedError:
+        pass
+    else:  # pragma: no cover - assertion path
+        raise AssertionError("garbage_collected must force pipe reconnect")
+
+    assert transport.writes == []
+
+
 def test_chat_bridge_reconnects_after_pipe_disconnect() -> None:
     class DisconnectingTransport(FakeTransport):
         def __init__(self) -> None:
