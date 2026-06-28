@@ -132,7 +132,7 @@ The sector-objects reader sends `intent:"sector_objects"`; Lua emits `schema:"se
 
 ### v0.3 cockpit chat bridge
 
-The first cockpit UI slice uses SirNukes `Chat_Window_API`, not `Simple_Menu_API`: Simple Menu can host edit boxes, but X4's chat window already provides the cockpit text input hotkey, scrollback, and print surface with less custom UI risk. The command is `/hermes <question>` in the in-game chat window; the bridge prints `thinking...` with a correlation id and later prints the matching answer or explicit timeout/error. This is text-in/text-out only. It does not call `set_waypoint`, `mark_target`, autopilot, or any game mutation.
+The first cockpit UI slice uses SirNukes `Chat_Window_API`, not `Simple_Menu_API`: Simple Menu can host edit boxes, but X4's chat window already provides the cockpit text input hotkey, scrollback, and print surface with less custom UI risk. The command is registered as `/hermes` and used as `/hermes <question>` in the in-game chat window; slash commands are consumed by the command layer and do not echo as normal chat, so the bridge prints its own `You [id]` / `thinking...` feedback when the callback fires. This is text-in/text-out only. It does not call `set_waypoint`, `mark_target`, autopilot, or any game mutation.
 
 Protocol on the same `x4_llm_copilot` pipe now has two request classes plus probes:
 

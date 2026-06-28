@@ -28,7 +28,7 @@
       </conditions>
       <actions>
         <signal_cue_instantly cue="md.Chat_Window_API.Register_Command" param="table[
-          $name='hermes',
+          $name='/hermes',
           $callback=Hermes_Chat_Command,
           $echo=table[]]" />
         <signal_cue_instantly cue="md.Chat_Window_API.Print" param="'Hermes cockpit chat ready. Use /hermes &lt;question&gt; in the X4 chat window.'" />
