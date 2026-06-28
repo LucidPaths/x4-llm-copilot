@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import queue
+import time
 
 from x4_copilot.chat_bridge import ChatBridgeConfig, ChatPipeBridge, HermesAgentResponder
 from x4_copilot.cockpit_session import CockpitSessionContext
@@ -70,20 +71,14 @@ def test_chat_bridge_routes_chat_request_by_correlation_id() -> None:
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-1", "text": "what's selling near me?"}))
-
-    deadline = __import__("time").monotonic() + 1.0
-    while not transport.writes and __import__("time").monotonic() < deadline:
-        __import__("time").sleep(0.01)
-    fetch = json.loads(transport.writes[0])
+    fetch = _wait_for_fetch(transport)
     assert fetch["type"] == "fetch"
     assert fetch["intent"] == "trade_in_sector"
     assert fetch["question"] == "what's selling near me?"
     assert fetch["args"]["scope"] == "radar_range"
 
     bridge.handle_message(json.dumps(_radar_trade_raw()))
-    bridge.wait_for_workers(timeout_s=1.0)
-
-    responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+    responses = _wait_for_responses(transport, 1)
     assert responses == [{"type": "chat_response", "id": "x4chat-1", "text": "answer for what's selling near me?: trade_in_sector"}]
 
 
@@ -92,7 +87,7 @@ def test_chat_bridge_answers_ambient_context_with_capability_help_without_fetch(
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-help", "text": "ambient_context"}))
-    bridge.wait_for_workers(timeout_s=1.0)
+    _wait_for_responses(transport, 1)
 
     writes = [json.loads(item) for item in transport.writes]
     assert [item for item in writes if item.get("type") == "fetch"] == []
@@ -111,11 +106,7 @@ def test_chat_bridge_defaults_unknown_chat_to_live_ambient_fetch() -> None:
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-smoke", "text": "test"}))
-
-    deadline = __import__("time").monotonic() + 1.0
-    while not transport.writes and __import__("time").monotonic() < deadline:
-        __import__("time").sleep(0.01)
-    fetch = json.loads(transport.writes[0])
+    fetch = _wait_for_fetch(transport)
     assert fetch["type"] == "fetch"
     assert fetch["intent"] == "ambient_context"
     assert fetch["question"] == "test"
@@ -134,9 +125,7 @@ def test_chat_bridge_defaults_unknown_chat_to_live_ambient_fetch() -> None:
             }
         )
     )
-    bridge.wait_for_workers(timeout_s=1.0)
-
-    responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+    responses = _wait_for_responses(transport, 1)
     assert responses == [{"type": "chat_response", "id": "x4chat-smoke", "text": "answer for test: ambient_context"}]
 
 
@@ -150,9 +139,7 @@ def test_chat_bridge_normalizes_response_text_for_x4_chat_display() -> None:
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0), transport=transport, responder=CurlyResponder())
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-ascii", "text": "hallo"}))
-    deadline = __import__("time").monotonic() + 1.0
-    while not transport.writes and __import__("time").monotonic() < deadline:
-        __import__("time").sleep(0.01)
+    _wait_for_fetch(transport)
     bridge.handle_message(
         json.dumps(
             {
@@ -167,9 +154,7 @@ def test_chat_bridge_normalizes_response_text_for_x4_chat_display() -> None:
             }
         )
     )
-    bridge.wait_for_workers(timeout_s=1.0)
-
-    responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+    responses = _wait_for_responses(transport, 1)
     assert responses == [{"type": "chat_response", "id": "x4chat-ascii", "text": "you're in Président's range - don't panic..."}]
 
 
@@ -184,9 +169,7 @@ def test_chat_bridge_chunks_long_chat_responses() -> None:
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=1.0, chat_timeout_s=1.0, chat_response_chunk_chars=300), transport=transport, responder=LongResponder())
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-long", "text": "hallo"}))
-    deadline = __import__("time").monotonic() + 1.0
-    while not transport.writes and __import__("time").monotonic() < deadline:
-        __import__("time").sleep(0.01)
+    _wait_for_fetch(transport)
     bridge.handle_message(
         json.dumps(
             {
@@ -199,9 +182,7 @@ def test_chat_bridge_chunks_long_chat_responses() -> None:
             }
         )
     )
-    bridge.wait_for_workers(timeout_s=1.0)
-
-    responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+    responses = _wait_for_complete_chunked_response(transport)
     assert len(responses) > 1
     assert responses[0]["text"].startswith("[1/")
     assert responses[-1]["text"].startswith(f"[{len(responses)}/{len(responses)}]")
@@ -291,9 +272,7 @@ def test_chat_bridge_times_out_fail_closed_without_stale_answer() -> None:
     bridge = ChatPipeBridge(ChatBridgeConfig(fetch_timeout_s=0.01, chat_timeout_s=1.0), transport=transport, responder=EchoResponder())
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "x4chat-2", "text": "what's selling near me?"}))
-    bridge.wait_for_workers(timeout_s=1.0)
-
-    responses = [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+    responses = _wait_for_responses(transport, 1)
     assert len(responses) == 1
     assert responses[0]["id"] == "x4chat-2"
     assert "error" in responses[0]
@@ -324,19 +303,52 @@ def _ambient_raw(*, credits: int = 100, sector: str = "Windfall I", ship_name: s
     }
 
 
-def _wait_for_fetch(transport: FakeTransport) -> dict:
-    deadline = __import__("time").monotonic() + 1.0
-    while __import__("time").monotonic() < deadline:
+def _wait_for_fetch(transport: FakeTransport, *, count: int = 1, timeout_s: float = 5.0) -> dict:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        fetches = []
         for item in transport.writes:
             parsed = json.loads(item)
             if parsed.get("type") == "fetch":
-                return parsed
-        __import__("time").sleep(0.01)
-    raise AssertionError("fetch not written")
+                fetches.append(parsed)
+        if len(fetches) >= count:
+            return fetches[count - 1]
+        time.sleep(0.01)
+    raise AssertionError(f"fetch {count} not written; saw {len(fetches) if 'fetches' in locals() else 0}")
+
+
+def _wait_for_responder_calls(responder: SessionAwareResponder, count: int, *, timeout_s: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if len(responder.calls) >= count:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"expected {count} responder calls, saw {len(responder.calls)}")
 
 
 def _responses(transport: FakeTransport) -> list[dict]:
     return [json.loads(item) for item in transport.writes if json.loads(item).get("type") == "chat_response"]
+
+
+def _wait_for_responses(transport: FakeTransport, count: int, *, timeout_s: float = 5.0) -> list[dict]:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        responses = _responses(transport)
+        if len(responses) >= count:
+            return responses
+        time.sleep(0.01)
+    raise AssertionError(f"expected {count} chat responses, saw {len(_responses(transport))}")
+
+
+def _wait_for_complete_chunked_response(transport: FakeTransport, *, timeout_s: float = 5.0) -> list[dict]:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        responses = _responses(transport)
+        if responses and responses[-1]["text"].startswith(f"[{len(responses)}/{len(responses)}]"):
+            return responses
+        time.sleep(0.01)
+    responses = _responses(transport)
+    raise AssertionError(f"chunked response incomplete; saw {len(responses)} chunks")
 
 
 def test_chat_bridge_persists_save_scoped_transcript_and_followup_context(tmp_path) -> None:
@@ -349,14 +361,14 @@ def test_chat_bridge_persists_save_scoped_transcript_and_followup_context(tmp_pa
     )
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "a1", "save_scope_id": "Save Alpha", "text": "hello"}))
-    _wait_for_fetch(transport)
+    _wait_for_fetch(transport, count=1)
     bridge.handle_message(json.dumps(_ambient_raw(credits=100)))
-    bridge.wait_for_workers(timeout_s=1.0)
+    _wait_for_responder_calls(responder, 1)
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "a2", "save_scope_id": "Save Alpha", "text": "what about that?"}))
-    _wait_for_fetch(transport)
+    _wait_for_fetch(transport, count=2)
     bridge.handle_message(json.dumps(_ambient_raw(credits=150)))
-    bridge.wait_for_workers(timeout_s=1.0)
+    _wait_for_responder_calls(responder, 2)
 
     assert responder.calls[0][2] is not None
     assert responder.calls[0][2].scope.save_scope_id == "save-alpha"
@@ -380,14 +392,14 @@ def test_chat_bridge_isolates_different_save_scopes(tmp_path) -> None:
     )
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "a1", "save_scope_id": "Save A", "text": "remember this"}))
-    _wait_for_fetch(transport)
+    _wait_for_fetch(transport, count=1)
     bridge.handle_message(json.dumps(_ambient_raw(credits=10)))
-    bridge.wait_for_workers(timeout_s=1.0)
+    _wait_for_responder_calls(responder, 1)
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "b1", "save_scope_id": "Save B", "text": "what did I say?"}))
-    _wait_for_fetch(transport)
+    _wait_for_fetch(transport, count=2)
     bridge.handle_message(json.dumps(_ambient_raw(credits=20)))
-    bridge.wait_for_workers(timeout_s=1.0)
+    _wait_for_responder_calls(responder, 2)
 
     assert responder.calls[0][2].scope.save_scope_id == "save-a"
     assert responder.calls[1][2].scope.save_scope_id == "save-b"
@@ -407,9 +419,7 @@ def test_session_commands_use_save_scoped_store(tmp_path) -> None:
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "s1", "save_scope_id": "Save A", "text": "session"}))
     _wait_for_fetch(transport)
     bridge.handle_message(json.dumps(_ambient_raw(credits=1)))
-    bridge.wait_for_workers(timeout_s=1.0)
-
-    text = _responses(transport)[0]["text"]
+    text = _wait_for_responses(transport, 1)[0]["text"]
     assert "save-a" in text
     assert "transcript=" in text
     assert str(tmp_path) in text
@@ -425,14 +435,14 @@ def test_save_command_binds_subsequent_unlabelled_turns(tmp_path) -> None:
     )
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "bind", "text": "save Campaign One"}))
-    _wait_for_fetch(transport)
+    _wait_for_fetch(transport, count=1)
     bridge.handle_message(json.dumps(_ambient_raw(credits=1)))
-    bridge.wait_for_workers(timeout_s=1.0)
+    _wait_for_responses(transport, 1)
 
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "next", "text": "hello again"}))
-    _wait_for_fetch(transport)
+    _wait_for_fetch(transport, count=2)
     bridge.handle_message(json.dumps(_ambient_raw(credits=2)))
-    bridge.wait_for_workers(timeout_s=1.0)
+    _wait_for_responder_calls(responder, 1)
 
     assert _responses(transport)[0]["text"] == "Bound X4 cockpit session to save scope campaign-one."
     assert responder.calls[0][2].scope.save_scope_id == "campaign-one"
@@ -485,9 +495,7 @@ def test_missing_save_scope_fails_closed_when_derivation_disabled(tmp_path) -> N
     bridge.handle_message(json.dumps({"type": "chat_request", "id": "no-save", "text": "hello"}))
     _wait_for_fetch(transport)
     bridge.handle_message(json.dumps(_ambient_raw(credits=1)))
-    bridge.wait_for_workers(timeout_s=1.0)
-
-    response = _responses(transport)[0]
+    response = _wait_for_responses(transport, 1)[0]
     assert "error" in response
     assert "missing save scope" in response["text"]
     assert not (tmp_path / "sessions").exists()
